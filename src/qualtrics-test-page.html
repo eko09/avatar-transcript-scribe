@@ -1,0 +1,253 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HeyGen Qualtrics Integration Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .embed-container {
+            width: 100%;
+            max-width: 800px;
+            margin: 20px auto;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .transcript-log {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .transcript-entry {
+            margin-bottom: 10px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .speaker {
+            font-weight: bold;
+            color: #007bff;
+        }
+        .timestamp {
+            font-size: 12px;
+            color: #666;
+            float: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>HeyGen Qualtrics Integration Test</h1>
+        <p>This page demonstrates how the HeyGen avatar integration works with transcript capture for Qualtrics surveys.</p>
+        
+        <div class="embed-container">
+            <h3>AI Avatar Interview</h3>
+            <p style="color: #666; font-size: 14px;">Please interact with the AI avatar below. Your conversation will be automatically recorded.</p>
+            <iframe 
+                id="heygen-iframe"
+                src="https://labs.heygen.com/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdW5lX0hSX3B1YmxpYyIsInByZXZpZXdJbWciOiJodHRwczovL2ZpbGVzMi5oZXlnZW4uYWkvYXZhdGFyL3YzLzc0NDQ3YTI3ODU5YTQ1NmM5NTVlMDFmMjFlZjE4MjE2XzQ1NjIwL3ByZXZpZXdfdGFsa18xLndlYnAiLCJuZWVkUmVtb3ZlQmFja2dyb3VuZCI6ZmFsc2UsImtub3dsZWRnZUJhc2VJZCI6ImFjODY1MWMzOWNlNTRiNTQ4NTkzOWRhZWM4YjdiZjRlIiwidXNlcm5hbWUiOiJhODQ1OTg5ZWY3NTY0NmY5OWZmY2RhOWNmMDMwMjVlNSJ9&inIFrame=1"
+                allow="microphone"
+                style="width: 100%; height: 500px; border: none; border-radius: 8px;"
+                title="HeyGen AI Avatar">
+            </iframe>
+        </div>
+        
+        <div class="transcript-log">
+            <h3>Live Transcript Log</h3>
+            <div id="transcript-display">
+                <p style="color: #666;">Transcript messages will appear here as you interact with the avatar...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Supabase configuration
+        const SUPABASE_URL = "https://xcznuookkehqcfcrhevq.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhjem51b29ra2VocWNmY3JoZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4OTk4NzUsImV4cCI6MjA2NjQ3NTg3NX0.t9rsVefD7nElpgNiH9WGN5CymJrNL_KF_xNJFgNAeCg";
+        
+        // Generate session ID
+        const sessionId = `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const transcriptDisplay = document.getElementById('transcript-display');
+        
+        console.log('Test page - Starting session:', sessionId);
+        
+        // Function to save transcript to Supabase
+        async function saveToSupabase(transcriptEntry) {
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/transcripts`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                        'Prefer': 'return=minimal'
+                    },
+                    body: JSON.stringify({
+                        session_id: sessionId,
+                        speaker: transcriptEntry.speaker,
+                        content: transcriptEntry.content,
+                        timestamp: transcriptEntry.timestamp,
+                        metadata: {
+                            ...transcriptEntry.metadata,
+                            source: 'test_page'
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                console.log('Successfully saved to Supabase:', transcriptEntry.speaker, transcriptEntry.content.substring(0, 50));
+            } catch (error) {
+                console.error('Error saving to Supabase:', error);
+            }
+        }
+        
+        // Function to display transcript in UI
+        function displayTranscript(transcriptEntry) {
+            const entryDiv = document.createElement('div');
+            entryDiv.className = 'transcript-entry';
+            entryDiv.innerHTML = `
+                <div class="timestamp">${new Date(transcriptEntry.timestamp).toLocaleTimeString()}</div>
+                <div class="speaker">${transcriptEntry.speaker}:</div>
+                <div>${transcriptEntry.content}</div>
+            `;
+            transcriptDisplay.appendChild(entryDiv);
+            transcriptDisplay.scrollTop = transcriptDisplay.scrollHeight;
+        }
+        
+        // Function to handle transcript messages
+        function handleTranscript(transcriptEntry) {
+            saveToSupabase(transcriptEntry);
+            displayTranscript(transcriptEntry);
+            console.log('Processed transcript:', transcriptEntry.speaker, '-', transcriptEntry.content.substring(0, 100));
+        }
+        
+        // Message event listener for HeyGen iframe communication
+        function handleMessage(event) {
+            console.log('Received message:', event.data, 'from origin:', event.origin);
+            
+            // Security check
+            if (!event.origin.includes('heygen.com') && !event.origin.includes('labs.heygen.com')) {
+                return;
+            }
+            
+            if (event.data && typeof event.data === 'object') {
+                const { type, action, data } = event.data;
+                const timestamp = new Date().toISOString();
+                
+                // Handle different types of messages from HeyGen
+                switch (type) {
+                    case 'transcript':
+                    case 'ai_response':
+                    case 'avatar_speech':
+                        if (data && data.content) {
+                            handleTranscript({
+                                speaker: data.speaker || 'AI Avatar',
+                                content: data.content,
+                                timestamp: data.timestamp || timestamp,
+                                metadata: {
+                                    type: type,
+                                    source: 'heygen_avatar',
+                                    ...data.metadata
+                                }
+                            });
+                        }
+                        break;
+                    
+                    case 'user_message':
+                    case 'user_input':
+                    case 'user_speech':
+                        if (data && (data.message || data.content)) {
+                            handleTranscript({
+                                speaker: 'User',
+                                content: data.message || data.content,
+                                timestamp: data.timestamp || timestamp,
+                                metadata: {
+                                    type: type,
+                                    source: 'user_input',
+                                    ...data.metadata
+                                }
+                            });
+                        }
+                        break;
+                    
+                    case 'conversation_start':
+                        handleTranscript({
+                            speaker: 'System',
+                            content: 'Conversation started',
+                            timestamp: timestamp,
+                            metadata: {
+                                type: 'system_event',
+                                event: 'conversation_start',
+                                ...data
+                            }
+                        });
+                        break;
+                    
+                    case 'streaming-embed':
+                        console.log('HeyGen streaming embed action:', action);
+                        if (action === 'ready') {
+                            handleTranscript({
+                                speaker: 'System',
+                                content: 'HeyGen avatar ready for interaction',
+                                timestamp: timestamp,
+                                metadata: {
+                                    type: 'system_event',
+                                    event: 'avatar_ready'
+                                }
+                            });
+                        }
+                        break;
+                }
+            }
+        }
+        
+        // Add message event listener
+        window.addEventListener('message', handleMessage);
+        
+        // Send initialization message after iframe loads
+        setTimeout(() => {
+            const iframe = document.getElementById('heygen-iframe');
+            const initMessage = {
+                type: 'init',
+                session_id: sessionId,
+                timestamp: new Date().toISOString(),
+                source: 'test_page'
+            };
+            iframe.contentWindow?.postMessage(initMessage, 'https://labs.heygen.com');
+        }, 2000);
+        
+        // Log session start
+        handleTranscript({
+            speaker: 'System',
+            content: 'Test session started with HeyGen integration',
+            timestamp: new Date().toISOString(),
+            metadata: {
+                type: 'system_event',
+                event: 'test_session_start',
+                session_id: sessionId
+            }
+        });
+    </script>
+</body>
+</html>
