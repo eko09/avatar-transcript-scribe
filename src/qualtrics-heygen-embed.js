@@ -12,60 +12,78 @@
 
 Qualtrics.SurveyEngine.addOnload(function() {
     // Supabase configuration
-    const SUPABASE_URL = "https://xcznuookkehqcfcrhevq.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhjem51b29ra2VocWNmY3JoZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4OTk4NzUsImV4cCI6MjA2NjQ3NTg3NX0.t9rsVefD7nElpgNiH9WGN5CymJrNL_KF_xNJFgNAeCg";
+    var SUPABASE_URL = "https://xcznuookkehqcfcrhevq.supabase.co";
+    var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhjem51b29ra2VocWNmY3JoZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4OTk4NzUsImV4cCI6MjA2NjQ3NTg3NX0.t9rsVefD7nElpgNiH9WGN5CymJrNL_KF_xNJFgNAeCg";
     
     // HeyGen embed configuration - replace with your specific avatar URL
-    const HEYGEN_EMBED_URL = "https://labs.heygen.com/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdW5lX0hSX3B1YmxpYyIsInByZXZpZXdJbWciOiJodHRwczovL2ZpbGVzMi5oZXlnZW4uYWkvYXZhdGFyL3YzLzc0NDQ3YTI3ODU5YTQ1NmM5NTVlMDFmMjFlZjE4MjE2XzQ1NjIwL3ByZXZpZXdfdGFsa18xLndlYnAiLCJuZWVkUmVtb3ZlQmFja2dyb3VuZCI6ZmFsc2UsImtub3dsZWRnZUJhc2VJZCI6ImFjODY1MWMzOWNlNTRiNTQ4NTkzOWRhZWM4YjdiZjRlIiwidXNlcm5hbWUiOiJhODQ1OTg5ZWY3NTY0NmY5OWZmY2RhOWNmMDMwMjVlNSJ9&inIFrame=1";
+    var HEYGEN_EMBED_URL = "https://labs.heygen.com/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdW5lX0hSX3B1YmxpYyIsInByZXZpZXdJbWciOiJodHRwczovL2ZpbGVzMi5oZXlnZW4uYWkvYXZhdGFyL3YzLzc0NDQ3YTI3ODU5YTQ1NmM5NTVlMDFmMjFlZjE4MjE2XzQ1NjIwL3ByZXZpZXdfdGFsa18xLndlYnAiLCJuZWVkUmVtb3ZlQmFja2dyb3VuZCI6ZmFsc2UsImtub3dsZWRnZUJhc2VJZCI6ImFjODY1MWMzOWNlNTRiNTQ4NTkzOWRhZWM4YjdiZjRlIiwidXNlcm5hbWUiOiJhODQ1OTg5ZWY3NTY0NmY5OWZmY2RhOWNmMDMwMjVlNSJ9&inIFrame=1";
     
     // Generate unique session ID for this survey response
-    const sessionId = `qualtrics_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const responseId = Qualtrics.SurveyEngine.getResponseID();
+    var sessionId = 'qualtrics_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    var responseId = Qualtrics.SurveyEngine.getResponseID();
     
     // Store for collecting transcript data
-    let transcriptData = [];
+    var transcriptData = [];
     
     console.log('Qualtrics HeyGen Integration - Starting session:', sessionId);
     console.log('Qualtrics Response ID:', responseId);
     
-    // Function to save transcript to Supabase
-    async function saveToSupabase(transcriptEntry) {
-        try {
-            const response = await fetch(`${SUPABASE_URL}/rest/v1/transcripts`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'apikey': SUPABASE_ANON_KEY,
-                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-                    'Prefer': 'return=minimal'
-                },
-                body: JSON.stringify({
-                    session_id: sessionId,
-                    speaker: transcriptEntry.speaker,
-                    content: transcriptEntry.content,
-                    timestamp: transcriptEntry.timestamp,
-                    metadata: {
-                        ...transcriptEntry.metadata,
-                        qualtrics_response_id: responseId,
-                        source: 'qualtrics_embed'
-                    }
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+    // Function to merge objects (replaces spread operator)
+    function mergeObjects(target, source) {
+        var result = {};
+        for (var key in target) {
+            if (target.hasOwnProperty(key)) {
+                result[key] = target[key];
             }
-            
-            console.log('Successfully saved to Supabase:', transcriptEntry.speaker, transcriptEntry.content.substring(0, 50));
-        } catch (error) {
-            console.error('Error saving to Supabase:', error);
         }
+        for (var key in source) {
+            if (source.hasOwnProperty(key)) {
+                result[key] = source[key];
+            }
+        }
+        return result;
+    }
+    
+    // Function to save transcript to Supabase
+    function saveToSupabase(transcriptEntry) {
+        var metadata = mergeObjects(transcriptEntry.metadata || {}, {
+            qualtrics_response_id: responseId,
+            source: 'qualtrics_embed'
+        });
+        
+        var requestBody = {
+            session_id: sessionId,
+            speaker: transcriptEntry.speaker,
+            content: transcriptEntry.content,
+            timestamp: transcriptEntry.timestamp,
+            metadata: metadata
+        };
+        
+        // Use XMLHttpRequest for compatibility
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', SUPABASE_URL + '/rest/v1/transcripts', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.setRequestHeader('apikey', SUPABASE_ANON_KEY);
+        xhr.setRequestHeader('Authorization', 'Bearer ' + SUPABASE_ANON_KEY);
+        xhr.setRequestHeader('Prefer', 'return=minimal');
+        
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    console.log('Successfully saved to Supabase:', transcriptEntry.speaker, transcriptEntry.content.substring(0, 50));
+                } else {
+                    console.error('Error saving to Supabase:', xhr.status, xhr.responseText);
+                }
+            }
+        };
+        
+        xhr.send(JSON.stringify(requestBody));
     }
     
     // Function to update Qualtrics Embedded Data
     function updateQualtricsData() {
         try {
-            const transcriptSummary = {
+            var transcriptSummary = {
                 session_id: sessionId,
                 response_id: responseId,
                 total_messages: transcriptData.length,
@@ -100,13 +118,16 @@ Qualtrics.SurveyEngine.addOnload(function() {
         console.log('Received message:', event.data, 'from origin:', event.origin);
         
         // Security check - ensure message is from HeyGen
-        if (!event.origin.includes('heygen.com') && !event.origin.includes('labs.heygen.com')) {
+        if (event.origin.indexOf('heygen.com') === -1 && event.origin.indexOf('labs.heygen.com') === -1) {
             return;
         }
         
         if (event.data && typeof event.data === 'object') {
-            const { type, action, data } = event.data;
-            const timestamp = new Date().toISOString();
+            var messageData = event.data;
+            var type = messageData.type;
+            var action = messageData.action;
+            var data = messageData.data;
+            var timestamp = new Date().toISOString();
             
             // Handle different types of messages from HeyGen
             switch (type) {
@@ -114,15 +135,16 @@ Qualtrics.SurveyEngine.addOnload(function() {
                 case 'ai_response':
                 case 'avatar_speech':
                     if (data && data.content) {
+                        var metadata = mergeObjects({
+                            type: type,
+                            source: 'heygen_avatar'
+                        }, data.metadata || {});
+                        
                         handleTranscript({
                             speaker: data.speaker || 'AI Avatar',
                             content: data.content,
                             timestamp: data.timestamp || timestamp,
-                            metadata: {
-                                type: type,
-                                source: 'heygen_avatar',
-                                ...data.metadata
-                            }
+                            metadata: metadata
                         });
                     }
                     break;
@@ -131,45 +153,48 @@ Qualtrics.SurveyEngine.addOnload(function() {
                 case 'user_input':
                 case 'user_speech':
                     if (data && (data.message || data.content)) {
+                        var metadata = mergeObjects({
+                            type: type,
+                            source: 'user_input'
+                        }, data.metadata || {});
+                        
                         handleTranscript({
                             speaker: 'User',
                             content: data.message || data.content,
                             timestamp: data.timestamp || timestamp,
-                            metadata: {
-                                type: type,
-                                source: 'user_input',
-                                ...data.metadata
-                            }
+                            metadata: metadata
                         });
                     }
                     break;
                 
                 case 'conversation_start':
+                    var metadata = mergeObjects({
+                        type: 'system_event',
+                        event: 'conversation_start',
+                        qualtrics_response_id: responseId
+                    }, data || {});
+                    
                     handleTranscript({
                         speaker: 'System',
                         content: 'Conversation started in Qualtrics survey',
                         timestamp: timestamp,
-                        metadata: {
-                            type: 'system_event',
-                            event: 'conversation_start',
-                            qualtrics_response_id: responseId,
-                            ...data
-                        }
+                        metadata: metadata
                     });
                     break;
                 
                 case 'conversation_end':
+                    var metadata = mergeObjects({
+                        type: 'system_event',
+                        event: 'conversation_end',
+                        qualtrics_response_id: responseId,
+                        total_messages: transcriptData.length
+                    }, data || {});
+                    
                     handleTranscript({
                         speaker: 'System',
                         content: 'Conversation ended in Qualtrics survey',
                         timestamp: timestamp,
-                        metadata: {
-                            type: 'system_event',
-                            event: 'conversation_end',
-                            qualtrics_response_id: responseId,
-                            total_messages: transcriptData.length,
-                            ...data
-                        }
+                        metadata: metadata
                     });
                     break;
                 
@@ -201,7 +226,7 @@ Qualtrics.SurveyEngine.addOnload(function() {
     // Create and inject the HeyGen iframe
     function createHeyGenEmbed() {
         // Find the question container or create a container
-        const questionContainer = document.querySelector('#' + this.questionId) || document.querySelector('.QuestionOuter');
+        var questionContainer = document.querySelector('#' + this.questionId) || document.querySelector('.QuestionOuter');
         
         if (!questionContainer) {
             console.error('Could not find question container for HeyGen embed');
@@ -209,41 +234,29 @@ Qualtrics.SurveyEngine.addOnload(function() {
         }
         
         // Create container for the embed
-        const embedContainer = document.createElement('div');
-        embedContainer.style.cssText = `
-            width: 100%;
-            max-width: 800px;
-            margin: 20px auto;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        `;
+        var embedContainer = document.createElement('div');
+        embedContainer.style.cssText = 'width: 100%; max-width: 800px; margin: 20px auto; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);';
         
         // Create iframe
-        const iframe = document.createElement('iframe');
+        var iframe = document.createElement('iframe');
         iframe.src = HEYGEN_EMBED_URL;
         iframe.allow = 'microphone';
-        iframe.style.cssText = `
-            width: 100%;
-            height: 500px;
-            border: none;
-            border-radius: 8px;
-        `;
+        iframe.style.cssText = 'width: 100%; height: 500px; border: none; border-radius: 8px;';
         iframe.title = 'HeyGen AI Avatar';
         
         embedContainer.appendChild(iframe);
         
         // Add title and instructions
-        const titleElement = document.createElement('h3');
+        var titleElement = document.createElement('h3');
         titleElement.textContent = 'AI Avatar Interview';
         titleElement.style.cssText = 'margin-bottom: 10px; color: #333;';
         
-        const instructionElement = document.createElement('p');
+        var instructionElement = document.createElement('p');
         instructionElement.textContent = 'Please interact with the AI avatar below. Your conversation will be automatically recorded.';
         instructionElement.style.cssText = 'margin-bottom: 15px; color: #666; font-size: 14px;';
         
         // Insert into question container
-        const wrapper = document.createElement('div');
+        var wrapper = document.createElement('div');
         wrapper.appendChild(titleElement);
         wrapper.appendChild(instructionElement);
         wrapper.appendChild(embedContainer);
@@ -251,14 +264,16 @@ Qualtrics.SurveyEngine.addOnload(function() {
         questionContainer.appendChild(wrapper);
         
         // Send initialization message after iframe loads
-        setTimeout(() => {
-            const initMessage = {
+        setTimeout(function() {
+            var initMessage = {
                 type: 'init',
                 session_id: sessionId,
                 timestamp: new Date().toISOString(),
                 source: 'qualtrics'
             };
-            iframe.contentWindow?.postMessage(initMessage, 'https://labs.heygen.com');
+            if (iframe.contentWindow) {
+                iframe.contentWindow.postMessage(initMessage, 'https://labs.heygen.com');
+            }
         }, 2000);
         
         console.log('HeyGen embed created successfully');
@@ -287,9 +302,9 @@ Qualtrics.SurveyEngine.addOnunload(function() {
     
     // Final update to embedded data
     try {
-        const finalSummary = {
+        var finalSummary = {
             session_completed: true,
-            total_messages: transcriptData?.length || 0,
+            total_messages: (typeof transcriptData !== 'undefined') ? transcriptData.length : 0,
             session_end: new Date().toISOString()
         };
         Qualtrics.SurveyEngine.setEmbeddedData('transcript_session_summary', JSON.stringify(finalSummary));
