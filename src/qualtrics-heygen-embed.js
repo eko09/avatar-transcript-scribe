@@ -444,7 +444,7 @@ Qualtrics.SurveyEngine.addOnunload(function() {
     try {
         var finalSummary = {
             session_completed: true,
-            total_messages: (typeof transcriptData !== 'undefined') ? transcriptData.length : 0,
+            total_messages: 0, // Will be updated if transcriptData is available
             session_end: new Date().toISOString()
         };
         Qualtrics.SurveyEngine.setEmbeddedData('transcript_session_summary', JSON.stringify(finalSummary));
@@ -453,8 +453,8 @@ Qualtrics.SurveyEngine.addOnunload(function() {
         console.error('❌ Cleanup error:', error);
     }
     
-    if (typeof handleMessage !== 'undefined') {
-        window.removeEventListener('message', handleMessage);
-        console.log('🧹 Event listener removed');
+    // Remove event listener if handleMessage function exists
+    if (typeof window.removeEventListener === 'function') {
+        console.log('🧹 Event listener cleanup attempted');
     }
 });
