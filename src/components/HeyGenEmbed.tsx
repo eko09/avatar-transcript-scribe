@@ -36,11 +36,17 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         return;
       }
 
+      // Ensure speaker is one of the allowed values
+      const validSpeakers = ['User', 'AI Avatar', 'System'];
+      const normalizedSpeaker = validSpeakers.includes(transcriptData.speaker) 
+        ? transcriptData.speaker 
+        : 'System';
+
       const { data, error } = await supabase
         .from('transcripts')
         .insert({
           session_id: transcriptData.session_id,
-          speaker: transcriptData.speaker,
+          speaker: normalizedSpeaker,
           content: transcriptData.content,
           timestamp: transcriptData.timestamp,
           metadata: transcriptData.metadata || null,
@@ -98,7 +104,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     iframe.style.borderRadius = "8px";
     iframe.style.backgroundColor = "#ffffff";
 
-    // Message handler
+    // Message handler based on HeyGen SDK documentation
     const handleMessage = (event: MessageEvent) => {
       // Security check - only allow HeyGen origins
       if (!event.origin.includes('heygen.com') && !event.origin.includes('labs.heygen.com')) {
@@ -115,7 +121,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
       if (event.data && typeof event.data === 'object') {
         const data = event.data;
         
-        // Update connection status
+        // Handle connection status updates
         if (data.type === 'streaming-embed') {
           if (data.action === 'ready' || data.action === 'connected') {
             setConnectionStatus('connected');
@@ -126,56 +132,98 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           }
         }
 
-        // Skip system messages that don't contain conversation content
-        const systemMessages = ['init', 'intercom-snippet__ready', 'streaming-embed'];
-        if (systemMessages.includes(data.type) || systemMessages.includes(data.action)) {
-          console.log('Skipping system message:', data.type || data.action);
-          return;
-        }
-
-        // Try to extract meaningful content
-        let speaker = 'Unknown';
-        let content = '';
-
-        // Enhanced content extraction
-        if (data.content) {
-          content = data.content;
-        } else if (data.message) {
-          content = data.message;
-        } else if (data.text) {
-          content = data.text;
-        } else if (data.transcript) {
-          content = data.transcript;
-        } else if (data.response) {
-          content = data.response;
-        }
-
-        // Enhanced speaker detection
-        if (data.speaker) {
-          speaker = data.speaker;
-        } else if (data.from === 'user' || data.source === 'user') {
-          speaker = 'User';
-        } else if (data.from === 'assistant' || data.from === 'ai' || data.source === 'ai') {
-          speaker = 'AI Avatar';
-        }
-
-        // Only save if we have meaningful content
-        if (content && content.trim().length > 0 && content.trim().length < 5000) {
-          console.log('💾 Saving meaningful message - Speaker:', speaker, 'Content:', content);
-          
+        // Handle avatar talking messages according to HeyGen SDK docs
+        if (data.type === 'avatar_talking_message') {
+          console.log('💬 Avatar talking message received');
           saveTranscript({
             session_id: sessionIdRef.current,
-            speaker: speaker,
-            content: content.trim(),
+            speaker: 'AI Avatar',
+            content: data.message || data.text || 'Avatar response',
             timestamp: new Date().toISOString(),
             metadata: {
               originalData: data,
               origin: event.origin,
-              messageType: data.type || data.action || 'unknown'
+              messageType: 'avatar_talking_message'
             },
           });
-        } else {
-          console.log('❌ No meaningful content found, skipping save');
+        }
+
+        // Handle user speech/input messages
+        if (data.type === 'user_message' || data.type === 'user_input' || data.type === 'speech_recognition') {
+          console.log('🎤 User message received');
+          saveTranscript({
+            session_id: sessionIdRef.current,
+            speaker: 'User',
+            content: data.message || data.text || data.transcript || 'User input',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              originalData: data,
+              origin: event.origin,
+              messageType: data.type
+            },
+          });
+        }
+
+        // Handle conversation start/end events
+        if (data.type === 'conversation_start') {
+          console.log('🚀 Conversation started');
+          saveTranscript({
+            session_id: sessionIdRef.current,
+            speaker: 'System',
+            content: 'Conversation started',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              originalData: data,
+              origin: event.origin,
+              messageType: 'conversation_start'
+            },
+          });
+        }
+
+        if (data.type === 'conversation_end') {
+          console.log('🏁 Conversation ended');
+          saveTranscript({
+            session_id: sessionIdRef.current,
+            speaker: 'System',
+            content: 'Conversation ended',
+            timestamp: new Date().toISOString(),
+            metadata: {
+              originalData: data,
+              origin: event.origin,
+              messageType: 'conversation_end'
+            },
+          });
+        }
+
+        // Handle any other message with meaningful content
+        if (data.message || data.text || data.content) {
+          const messageContent = data.message || data.text || data.content;
+          
+          // Skip if it's a system message we've already handled
+          const systemTypes = ['streaming-embed', 'intercom-snippet__ready'];
+          if (!systemTypes.includes(data.type) && messageContent.trim().length > 0) {
+            console.log('📝 General message with content');
+            
+            // Determine speaker based on message properties
+            let speaker = 'System';
+            if (data.from === 'user' || data.source === 'user' || data.type?.includes('user')) {
+              speaker = 'User';
+            } else if (data.from === 'avatar' || data.source === 'avatar' || data.type?.includes('avatar')) {
+              speaker = 'AI Avatar';
+            }
+
+            saveTranscript({
+              session_id: sessionIdRef.current,
+              speaker: speaker,
+              content: messageContent.trim(),
+              timestamp: new Date().toISOString(),
+              metadata: {
+                originalData: data,
+                origin: event.origin,
+                messageType: data.type || 'unknown'
+              },
+            });
+          }
         }
       }
     };
@@ -206,7 +254,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         containerRef.current.removeChild(iframe);
       }
     };
-  }, [onTranscriptSaved]); // Remove messageCount from dependencies to prevent infinite loop
+  }, [onTranscriptSaved]);
 
   const getStatusIcon = () => {
     switch (connectionStatus) {
