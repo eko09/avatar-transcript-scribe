@@ -18,6 +18,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [errorDetails, setErrorDetails] = useState<string[]>([]);
   const [messageCount, setMessageCount] = useState(0);
+  const [savedTranscripts, setSavedTranscripts] = useState(0);
   const sessionIdRef = useRef<string>('');
 
   const saveTranscript = async (transcriptData: {
@@ -28,54 +29,59 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     metadata?: any;
   }) => {
     try {
-      console.log('Attempting to save transcript:', transcriptData);
+      console.log('🔄 Attempting to save transcript:', transcriptData);
       
       // Validate required fields
       if (!transcriptData.session_id || !transcriptData.speaker || !transcriptData.content) {
-        console.error('Missing required fields:', transcriptData);
-        return;
+        console.error('❌ Missing required fields:', transcriptData);
+        return false;
       }
 
-      // Ensure speaker is one of the allowed values
-      const validSpeakers = ['User', 'AI Avatar', 'System'];
-      const normalizedSpeaker = validSpeakers.includes(transcriptData.speaker) 
-        ? transcriptData.speaker 
-        : 'System';
+      // Ensure content is not empty or just whitespace
+      if (transcriptData.content.trim().length === 0) {
+        console.log('⚠️ Skipping empty content');
+        return false;
+      }
 
       const { data, error } = await supabase
         .from('transcripts')
         .insert({
           session_id: transcriptData.session_id,
-          speaker: normalizedSpeaker,
-          content: transcriptData.content,
+          speaker: transcriptData.speaker,
+          content: transcriptData.content.trim(),
           timestamp: transcriptData.timestamp,
-          metadata: transcriptData.metadata || null,
-        });
+          metadata: transcriptData.metadata || {},
+        })
+        .select();
 
       if (error) {
-        console.error('Supabase error saving transcript:', error);
-        console.error('Error details:', JSON.stringify(error, null, 2));
+        console.error('❌ Supabase error saving transcript:', error);
         toast({
           title: "Database Error",
           description: `Failed to save transcript: ${error.message}`,
           variant: "destructive",
         });
-        return;
+        return false;
       }
 
-      console.log('Transcript saved successfully:', data);
+      console.log('✅ Transcript saved successfully:', data);
+      setSavedTranscripts(prev => prev + 1);
+      
       toast({
-        title: "Success",
-        description: "Message captured successfully",
+        title: "Message Captured",
+        description: `${transcriptData.speaker}: ${transcriptData.content.substring(0, 50)}...`,
       });
+      
       onTranscriptSaved();
+      return true;
     } catch (error) {
-      console.error('Unexpected error saving transcript:', error);
+      console.error('❌ Unexpected error saving transcript:', error);
       toast({
         title: "Error",
         description: "An unexpected error occurred while saving transcript",
         variant: "destructive",
       });
+      return false;
     }
   };
 
@@ -87,7 +93,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
 
     // Generate session ID once
     sessionIdRef.current = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    console.log('Starting HeyGen session:', sessionIdRef.current);
+    console.log('🚀 Starting HeyGen session:', sessionIdRef.current);
 
     // Clear container
     containerRef.current.innerHTML = '';
@@ -104,124 +110,92 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     iframe.style.borderRadius = "8px";
     iframe.style.backgroundColor = "#ffffff";
 
-    // Message handler based on HeyGen SDK documentation
+    // Message handler
     const handleMessage = (event: MessageEvent) => {
       // Security check - only allow HeyGen origins
       if (!event.origin.includes('heygen.com') && !event.origin.includes('labs.heygen.com')) {
-        console.log('Message from non-HeyGen origin, ignoring:', event.origin);
         return;
       }
 
       setMessageCount(prev => prev + 1);
       
-      console.log('=== RECEIVED MESSAGE ===');
-      console.log('Origin:', event.origin);
-      console.log('Data:', JSON.stringify(event.data, null, 2));
+      console.log('📨 Message received:', {
+        origin: event.origin,
+        type: event.data?.type,
+        data: event.data
+      });
 
       if (event.data && typeof event.data === 'object') {
         const data = event.data;
+        const timestamp = new Date().toISOString();
         
-        // Handle connection status updates
+        // Handle connection status
         if (data.type === 'streaming-embed') {
           if (data.action === 'ready' || data.action === 'connected') {
             setConnectionStatus('connected');
             setErrorDetails([]);
+            saveTranscript({
+              session_id: sessionIdRef.current,
+              speaker: 'System',
+              content: 'HeyGen session started',
+              timestamp,
+              metadata: { event: 'session_start', data }
+            });
           } else if (data.action === 'error' || data.action === 'failed') {
             setConnectionStatus('failed');
             setErrorDetails(prev => [...prev, `HeyGen Error: ${JSON.stringify(data)}`]);
           }
         }
 
-        // Handle avatar talking messages according to HeyGen SDK docs
-        if (data.type === 'avatar_talking_message') {
-          console.log('💬 Avatar talking message received');
-          saveTranscript({
-            session_id: sessionIdRef.current,
-            speaker: 'AI Avatar',
-            content: data.message || data.text || 'Avatar response',
-            timestamp: new Date().toISOString(),
-            metadata: {
-              originalData: data,
-              origin: event.origin,
-              messageType: 'avatar_talking_message'
-            },
-          });
-        }
-
-        // Handle user speech/input messages
-        if (data.type === 'user_message' || data.type === 'user_input' || data.type === 'speech_recognition') {
-          console.log('🎤 User message received');
-          saveTranscript({
-            session_id: sessionIdRef.current,
-            speaker: 'User',
-            content: data.message || data.text || data.transcript || 'User input',
-            timestamp: new Date().toISOString(),
-            metadata: {
-              originalData: data,
-              origin: event.origin,
-              messageType: data.type
-            },
-          });
-        }
-
-        // Handle conversation start/end events
-        if (data.type === 'conversation_start') {
-          console.log('🚀 Conversation started');
-          saveTranscript({
-            session_id: sessionIdRef.current,
-            speaker: 'System',
-            content: 'Conversation started',
-            timestamp: new Date().toISOString(),
-            metadata: {
-              originalData: data,
-              origin: event.origin,
-              messageType: 'conversation_start'
-            },
-          });
-        }
-
-        if (data.type === 'conversation_end') {
-          console.log('🏁 Conversation ended');
-          saveTranscript({
-            session_id: sessionIdRef.current,
-            speaker: 'System',
-            content: 'Conversation ended',
-            timestamp: new Date().toISOString(),
-            metadata: {
-              originalData: data,
-              origin: event.origin,
-              messageType: 'conversation_end'
-            },
-          });
-        }
-
-        // Handle any other message with meaningful content
-        if (data.message || data.text || data.content) {
-          const messageContent = data.message || data.text || data.content;
+        // Capture all messages with content regardless of type
+        const messageContent = data.message || data.text || data.content || '';
+        
+        if (messageContent && typeof messageContent === 'string' && messageContent.trim().length > 0) {
+          let speaker = 'System';
           
-          // Skip if it's a system message we've already handled
-          const systemTypes = ['streaming-embed', 'intercom-snippet__ready'];
-          if (!systemTypes.includes(data.type) && messageContent.trim().length > 0) {
-            console.log('📝 General message with content');
-            
-            // Determine speaker based on message properties
-            let speaker = 'System';
-            if (data.from === 'user' || data.source === 'user' || data.type?.includes('user')) {
-              speaker = 'User';
-            } else if (data.from === 'avatar' || data.source === 'avatar' || data.type?.includes('avatar')) {
-              speaker = 'AI Avatar';
-            }
+          // Determine speaker based on various indicators
+          if (data.type?.includes('user') || data.from === 'user' || data.source === 'user') {
+            speaker = 'User';
+          } else if (data.type?.includes('avatar') || data.from === 'avatar' || data.source === 'avatar') {
+            speaker = 'AI Avatar';
+          } else if (data.type?.includes('assistant') || data.role === 'assistant') {
+            speaker = 'AI Avatar';
+          }
 
+          console.log(`💬 Saving ${speaker} message:`, messageContent.substring(0, 100));
+          
+          saveTranscript({
+            session_id: sessionIdRef.current,
+            speaker,
+            content: messageContent.trim(),
+            timestamp,
+            metadata: {
+              type: data.type,
+              originalData: data,
+              origin: event.origin
+            }
+          });
+        }
+
+        // Also capture specific HeyGen events
+        const eventTypes = [
+          'conversation_start', 'conversation_end', 'avatar_talking_message',
+          'user_message', 'user_input', 'speech_recognition', 'avatar_response'
+        ];
+
+        if (eventTypes.includes(data.type)) {
+          const eventContent = data.type === 'conversation_start' ? 'Conversation started' :
+                               data.type === 'conversation_end' ? 'Conversation ended' :
+                               messageContent || `Event: ${data.type}`;
+
+          if (eventContent && eventContent.trim().length > 0) {
             saveTranscript({
               session_id: sessionIdRef.current,
-              speaker: speaker,
-              content: messageContent.trim(),
-              timestamp: new Date().toISOString(),
-              metadata: {
-                originalData: data,
-                origin: event.origin,
-                messageType: data.type || 'unknown'
-              },
+              speaker: data.type.includes('user') ? 'User' : 
+                      data.type.includes('avatar') ? 'AI Avatar' : 'System',
+              content: eventContent,
+              timestamp,
+              metadata: { event: data.type, data }
             });
           }
         }
@@ -233,12 +207,12 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
 
     // Handle iframe load
     iframe.onload = () => {
-      console.log('🚀 Iframe loaded successfully');
+      console.log('✅ Iframe loaded successfully');
       setConnectionStatus('connected');
     };
 
     iframe.onerror = (error) => {
-      console.error('Iframe loading error:', error);
+      console.error('❌ Iframe loading error:', error);
       setConnectionStatus('failed');
       setErrorDetails(prev => [...prev, 'Iframe failed to load']);
     };
@@ -301,7 +275,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           </div>
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Interact with the AI avatar below. Messages received: {messageCount}
+          Session: {sessionIdRef.current} | Messages: {messageCount} | Saved: {savedTranscripts}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -339,8 +313,8 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         
         <div className="p-3 bg-muted rounded-lg">
           <p className="text-sm text-muted-foreground">
-            <strong>Debug Info:</strong> Messages received: {messageCount} | 
-            Status: {connectionStatus} | Session: {sessionIdRef.current}
+            <strong>Debug Info:</strong> Session: {sessionIdRef.current} | 
+            Messages: {messageCount} | Saved: {savedTranscripts} | Status: {connectionStatus}
           </p>
         </div>
       </CardContent>

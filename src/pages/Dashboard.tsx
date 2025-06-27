@@ -5,8 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
-import { Calendar, User, MessageSquare, Search } from "lucide-react";
+import { Calendar, User, MessageSquare, Search, RefreshCw } from "lucide-react";
 import TranscriptsList from "@/components/TranscriptsList";
 import HeyGenEmbed from "@/components/HeyGenEmbed";
 import { useToast } from "@/hooks/use-toast";
@@ -26,11 +25,14 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSession, setSelectedSession] = useState<string>('');
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const { toast } = useToast();
 
   const fetchTranscripts = async () => {
     try {
       setLoading(true);
+      console.log('🔄 Fetching transcripts from database...');
+      
       let query = supabase
         .from('transcripts')
         .select('*')
@@ -47,7 +49,7 @@ const Dashboard = () => {
       const { data, error } = await query;
 
       if (error) {
-        console.error('Error fetching transcripts:', error);
+        console.error('❌ Error fetching transcripts:', error);
         toast({
           title: "Error",
           description: "Failed to fetch transcripts",
@@ -56,9 +58,10 @@ const Dashboard = () => {
         return;
       }
 
+      console.log(`✅ Fetched ${data?.length || 0} transcripts`);
       setTranscripts(data || []);
     } catch (error) {
-      console.error('Error:', error);
+      console.error('❌ Unexpected error:', error);
       toast({
         title: "Error",
         description: "An unexpected error occurred",
@@ -73,11 +76,28 @@ const Dashboard = () => {
     fetchTranscripts();
   }, [searchTerm, selectedSession]);
 
+  // Auto-refresh every 10 seconds when on transcripts tab
+  useEffect(() => {
+    if (!autoRefresh) return;
+    
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing transcripts...');
+      fetchTranscripts();
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [autoRefresh, searchTerm, selectedSession]);
+
   const handleTranscriptSaved = () => {
+    console.log('📝 Transcript saved, refreshing dashboard...');
     fetchTranscripts();
+  };
+
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(!autoRefresh);
     toast({
-      title: "Success",
-      description: "Transcript saved successfully",
+      title: autoRefresh ? "Auto-refresh disabled" : "Auto-refresh enabled",
+      description: autoRefresh ? "Transcripts will no longer refresh automatically" : "Transcripts will refresh every 10 seconds",
     });
   };
 
@@ -93,6 +113,16 @@ const Dashboard = () => {
             <h1 className="text-3xl font-bold">HeyGen Transcript Dashboard</h1>
             <p className="text-muted-foreground">Manage and analyze your AI avatar conversations</p>
           </div>
+          <div className="flex items-center space-x-2">
+            <Button
+              variant={autoRefresh ? "default" : "outline"}
+              size="sm"
+              onClick={toggleAutoRefresh}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${autoRefresh ? 'animate-spin' : ''}`} />
+              Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
+            </Button>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -104,6 +134,9 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalSessions}</div>
+              <p className="text-xs text-muted-foreground">
+                {uniqueSessions.length > 0 && `Latest: ${uniqueSessions[0]?.substring(0, 20)}...`}
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -113,6 +146,9 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{totalTranscripts}</div>
+              <p className="text-xs text-muted-foreground">
+                {loading ? 'Loading...' : 'Up to date'}
+              </p>
             </CardContent>
           </Card>
           <Card>
@@ -122,13 +158,16 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{uniqueSessions.length}</div>
+              <p className="text-xs text-muted-foreground">
+                Auto-refresh: {autoRefresh ? 'Enabled' : 'Disabled'}
+              </p>
             </CardContent>
           </Card>
         </div>
 
         <Tabs defaultValue="transcripts" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="transcripts">Transcripts</TabsTrigger>
+            <TabsTrigger value="transcripts">Transcripts ({totalTranscripts})</TabsTrigger>
             <TabsTrigger value="avatar">AI Avatar</TabsTrigger>
           </TabsList>
 
@@ -157,15 +196,22 @@ const Dashboard = () => {
                       onChange={(e) => setSelectedSession(e.target.value)}
                       className="w-full px-3 py-2 border border-input bg-background rounded-md"
                     >
-                      <option value="">All Sessions</option>
+                      <option value="">All Sessions ({totalSessions})</option>
                       {uniqueSessions.map(sessionId => (
                         <option key={sessionId} value={sessionId}>
-                          {sessionId}
+                          {sessionId.length > 30 ? `${sessionId.substring(0, 30)}...` : sessionId}
                         </option>
                       ))}
                     </select>
                   </div>
                 </div>
+                {transcripts.length === 0 && !loading && (
+                  <div className="text-center p-4 bg-yellow-50 rounded-lg border">
+                    <p className="text-sm text-yellow-800">
+                      <strong>No transcripts found.</strong> Try interacting with the AI Avatar tab to generate some conversations!
+                    </p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
