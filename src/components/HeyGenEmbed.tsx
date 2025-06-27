@@ -20,7 +20,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     metadata?: any;
   }) => {
     try {
-      console.log('Saving transcript:', transcriptData);
+      console.log('Attempting to save transcript:', transcriptData);
       
       const { data, error } = await supabase
         .from('transcripts')
@@ -43,6 +43,10 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
       }
 
       console.log('Transcript saved successfully:', data);
+      toast({
+        title: "Success",
+        description: "Message captured successfully",
+      });
       onTranscriptSaved();
     } catch (error) {
       console.error('Error saving transcript:', error);
@@ -77,118 +81,180 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
 
     // Generate session ID for this conversation
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    console.log('Starting session:', sessionId);
+    console.log('Starting HeyGen session:', sessionId);
 
-    // Listen for messages from HeyGen iframe
+    // Enhanced message listener with broader capture
     const handleMessage = (event: MessageEvent) => {
-      console.log('Received message:', event.data, 'from origin:', event.origin);
+      console.log('=== RECEIVED MESSAGE ===');
+      console.log('Origin:', event.origin);
+      console.log('Data type:', typeof event.data);
+      console.log('Full message data:', JSON.stringify(event.data, null, 2));
 
-      // Security check - make sure message is from HeyGen
-      if (!event.origin.includes('heygen.com') && !event.origin.includes('labs.heygen.com')) {
+      // Security check - allow HeyGen origins
+      const allowedOrigins = [
+        'https://labs.heygen.com',
+        'https://heygen.com',
+        'https://www.heygen.com',
+        'https://app.heygen.com'
+      ];
+      
+      if (!allowedOrigins.some(origin => event.origin.includes(origin.replace('https://', '')))) {
+        console.log('Message from non-HeyGen origin, ignoring');
         return;
       }
 
+      // Handle different message formats
       if (event.data && typeof event.data === 'object') {
-        const { type, action, data } = event.data;
+        const data = event.data;
+        
+        // Log all message properties to understand the structure
+        console.log('Message properties:', Object.keys(data));
 
-        // Handle streaming embed specific messages
-        if (type === 'streaming-embed') {
-          console.log('Streaming embed action:', action);
-          return;
+        // Try to extract meaningful content from various possible formats
+        let speaker = 'Unknown';
+        let content = '';
+        let messageType = 'unknown';
+
+        // Check for common HeyGen message patterns
+        if (data.type) {
+          messageType = data.type;
+          console.log('Message type detected:', messageType);
         }
 
-        // Handle transcript and conversation messages
-        switch (type) {
-          case 'transcript':
-          case 'ai_response':
-          case 'avatar_speech':
-            if (data && data.content) {
-              saveTranscript({
-                session_id: sessionId,
-                speaker: data.speaker || 'AI Avatar',
-                content: data.content,
-                timestamp: data.timestamp || new Date().toISOString(),
-                metadata: { 
-                  type: type,
-                  ...data.metadata 
-                },
-              });
-            }
-            break;
+        if (data.event) {
+          messageType = data.event;
+          console.log('Event type detected:', messageType);
+        }
+
+        // Extract content from various possible formats
+        if (data.content) {
+          content = data.content;
+        } else if (data.message) {
+          content = data.message;
+        } else if (data.text) {
+          content = data.text;
+        } else if (data.transcript) {
+          content = data.transcript;
+        } else if (typeof data === 'string') {
+          content = data;
+        }
+
+        // Determine speaker
+        if (data.speaker) {
+          speaker = data.speaker;
+        } else if (data.from === 'user' || messageType.includes('user')) {
+          speaker = 'User';
+        } else if (data.from === 'assistant' || data.from === 'ai' || messageType.includes('ai') || messageType.includes('assistant')) {
+          speaker = 'AI Avatar';
+        } else if (messageType.includes('avatar')) {
+          speaker = 'AI Avatar';
+        }
+
+        // Save any message with content
+        if (content && content.trim().length > 0) {
+          console.log('Saving message - Speaker:', speaker, 'Content:', content);
           
-          case 'user_message':
-          case 'user_input':
-          case 'user_speech':
-            if (data && data.message) {
-              saveTranscript({
-                session_id: sessionId,
-                speaker: 'User',
-                content: data.message,
-                timestamp: data.timestamp || new Date().toISOString(),
-                metadata: { 
-                  type: type,
-                  ...data.metadata 
-                },
-              });
-            }
-            break;
-          
-          case 'conversation_start':
-            console.log('Conversation started:', data);
-            saveTranscript({
-              session_id: sessionId,
-              speaker: 'System',
-              content: 'Conversation started',
-              timestamp: new Date().toISOString(),
-              metadata: { 
-                type: 'system_event',
-                event: 'conversation_start',
-                ...data 
-              },
-            });
-            break;
-          
-          case 'conversation_end':
-            console.log('Conversation ended:', data);
-            saveTranscript({
-              session_id: sessionId,
-              speaker: 'System',
-              content: 'Conversation ended',
-              timestamp: new Date().toISOString(),
-              metadata: { 
-                type: 'system_event',
-                event: 'conversation_end',
-                ...data 
-              },
-            });
-            break;
-          
-          default:
-            console.log('Unknown message type:', type, data);
+          saveTranscript({
+            session_id: sessionId,
+            speaker: speaker,
+            content: content.trim(),
+            timestamp: new Date().toISOString(),
+            metadata: {
+              messageType: messageType,
+              originalData: data,
+              origin: event.origin
+            },
+          });
+        } else {
+          console.log('No content found in message, not saving');
+        }
+
+        // Also handle system events
+        if (messageType.includes('start') || messageType.includes('begin')) {
+          saveTranscript({
+            session_id: sessionId,
+            speaker: 'System',
+            content: `Conversation started (${messageType})`,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              messageType: 'system_event',
+              event: messageType,
+              originalData: data
+            },
+          });
+        }
+
+        if (messageType.includes('end') || messageType.includes('stop')) {
+          saveTranscript({
+            session_id: sessionId,
+            speaker: 'System',
+            content: `Conversation ended (${messageType})`,
+            timestamp: new Date().toISOString(),
+            metadata: {
+              messageType: 'system_event',
+              event: messageType,
+              originalData: data
+            },
+          });
+        }
+      } else if (typeof event.data === 'string') {
+        // Handle string messages
+        console.log('String message received:', event.data);
+        
+        if (event.data.trim().length > 0) {
+          saveTranscript({
+            session_id: sessionId,
+            speaker: 'Unknown',
+            content: event.data.trim(),
+            timestamp: new Date().toISOString(),
+            metadata: {
+              messageType: 'string_message',
+              origin: event.origin
+            },
+          });
         }
       }
     };
 
     // Add message listener
     window.addEventListener('message', handleMessage);
+    console.log('Message listener added for session:', sessionId);
 
     // Append iframe to container
     containerRef.current.appendChild(iframe);
 
-    // Send initialization message to establish connection
-    const initMessage = {
-      type: 'init',
-      session_id: sessionId,
-      timestamp: new Date().toISOString()
+    // Send initialization messages to establish connection
+    const sendInitMessages = () => {
+      const initMessages = [
+        { type: 'init', session_id: sessionId, timestamp: new Date().toISOString() },
+        { type: 'ready', session_id: sessionId },
+        { action: 'init', session_id: sessionId },
+        { event: 'ready', session_id: sessionId }
+      ];
+
+      initMessages.forEach((msg, index) => {
+        setTimeout(() => {
+          console.log('Sending init message:', msg);
+          iframe.contentWindow?.postMessage(msg, host);
+        }, (index + 1) * 1000);
+      });
     };
-    
-    // Wait a bit for iframe to load before sending init message
+
+    // Wait for iframe to load before sending init messages
+    iframe.onload = () => {
+      console.log('Iframe loaded, sending init messages...');
+      setTimeout(sendInitMessages, 2000);
+    };
+
+    // Also try sending messages after a delay as fallback
     setTimeout(() => {
-      iframe.contentWindow?.postMessage(initMessage, host);
-    }, 2000);
+      console.log('Fallback: sending init messages...');
+      sendInitMessages();
+    }, 5000);
 
     // Cleanup function
     return () => {
+      console.log('Cleaning up HeyGen embed for session:', sessionId);
       window.removeEventListener('message', handleMessage);
       if (containerRef.current && iframe.parentNode) {
         containerRef.current.removeChild(iframe);
@@ -213,8 +279,8 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         </div>
         <div className="mt-4 p-3 bg-muted rounded-lg">
           <p className="text-sm text-muted-foreground">
-            <strong>Note:</strong> This embed automatically captures conversation data through postMessage events.
-            Each participant will have a unique session ID for tracking individual conversations.
+            <strong>Debug Info:</strong> Check the browser console for detailed message logging.
+            Each conversation gets a unique session ID for tracking.
           </p>
         </div>
       </CardContent>
