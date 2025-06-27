@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,33 +20,56 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
   const [savedTranscripts, setSavedTranscripts] = useState(0);
   const sessionIdRef = useRef<string>('');
 
-  // Filter out unwanted system events that cause loops
-  const shouldIgnoreMessage = (data: any, messageType: string, messageContent: string): boolean => {
-    // Ignore intercom and other third-party events
-    if (messageType.includes('intercom') || messageContent.includes('intercom')) {
+  // Comprehensive filter to block all unwanted system events
+  const shouldIgnoreMessage = (data: any): boolean => {
+    // Block all intercom-related events
+    if (data?.type?.includes('intercom')) {
+      console.log('🚫 Blocking intercom event:', data.type);
       return true;
     }
     
-    // Ignore empty or whitespace-only content
-    if (!messageContent || messageContent.trim().length === 0) {
-      return true;
-    }
-    
-    // Ignore generic system ready events
-    if (messageType === 'ready' && messageContent === 'HeyGen event: ready') {
-      return true;
-    }
-    
-    // Only capture meaningful conversation content
-    const meaningfulEvents = [
-      'user_message', 'avatar_message', 'user_speech', 'avatar_speech',
-      'speech_recognition', 'text_to_speech', 'conversation'
+    // Block specific system events that don't contain conversation content
+    const blockedSystemEvents = [
+      'intercom-snippet__ready',
+      'ready',
+      'iframe_loaded',
+      'session_start',
+      'connection_ready',
+      'widget_ready',
+      'embed_ready'
     ];
     
-    // If it's a HeyGen event, only allow specific meaningful ones
-    if (messageContent.startsWith('HeyGen event:')) {
-      const eventType = messageContent.replace('HeyGen event: ', '');
-      return !meaningfulEvents.some(event => eventType.includes(event));
+    if (data?.type && blockedSystemEvents.includes(data.type)) {
+      console.log('🚫 Blocking system event:', data.type);
+      return true;
+    }
+    
+    // Only allow events that contain actual conversation content
+    const allowedEvents = [
+      'user_input',
+      'user_message', 
+      'user_speech',
+      'user_transcript',
+      'avatar_response',
+      'avatar_message',
+      'avatar_speech', 
+      'avatar_transcript',
+      'conversation_turn',
+      'speech_recognition_result',
+      'tts_result',
+      'dialogue',
+      'chat_message'
+    ];
+    
+    // If it's a structured event, only allow conversation-related ones
+    if (data?.type) {
+      const isAllowed = allowedEvents.some(event => 
+        data.type.toLowerCase().includes(event.toLowerCase())
+      );
+      if (!isAllowed) {
+        console.log('🚫 Blocking non-conversation event:', data.type);
+        return true;
+      }
     }
     
     return false;
@@ -142,7 +164,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     iframe.style.borderRadius = "8px";
     iframe.style.backgroundColor = "#ffffff";
 
-    // Message handler with filtering to prevent loops
+    // Message handler with strict filtering
     const handleMessage = (event: MessageEvent) => {
       console.log('📨 Raw message received:', {
         origin: event.origin,
@@ -158,99 +180,67 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
       }
 
       setMessageCount(prev => prev + 1);
-      const timestamp = new Date().toISOString();
 
-      // Try to extract meaningful content from any message format
-      let messageContent = '';
-      let speaker = 'System';
-      let messageType = 'unknown';
-
+      // Handle structured object messages
       if (event.data && typeof event.data === 'object') {
         const data = event.data;
         
-        // Log the structure for debugging
-        console.log('📋 Message structure:', {
-          keys: Object.keys(data),
-          type: data.type,
-          action: data.action,
-          event: data.event,
-          message: data.message,
-          text: data.text,
-          content: data.content
-        });
-
-        // Extract content from various possible fields
-        messageContent = data.message || data.text || data.content || data.transcript || '';
-        messageType = data.type || data.event || data.action || 'message';
+        // Apply strict filtering - block unwanted system events immediately
+        if (shouldIgnoreMessage(data)) {
+          return; // Don't process this message at all
+        }
         
-        // Determine speaker based on message type and content
-        if (messageType.includes('user') || data.from === 'user' || data.speaker === 'user') {
-          speaker = 'User';
-        } else if (messageType.includes('avatar') || messageType.includes('assistant') || data.from === 'avatar') {
-          speaker = 'AI Avatar';
-        } else if (messageType.includes('system') || messageType.includes('ready') || messageType.includes('connected')) {
-          speaker = 'System';
-          if (!messageContent) {
-            messageContent = `HeyGen event: ${messageType}`;
-          }
-        }
-
-        // Handle HeyGen streaming events
-        if (data.type === 'streaming-embed') {
-          if (data.action === 'ready' || data.action === 'connected') {
-            setConnectionStatus('connected');
-            setErrorDetails([]);
-            messageContent = 'HeyGen session ready';
-            speaker = 'System';
-          } else if (data.action === 'error' || data.action === 'failed') {
-            setConnectionStatus('failed');
-            setErrorDetails(prev => [...prev, `HeyGen Error: ${JSON.stringify(data)}`]);
-            messageContent = `Error: ${data.message || 'Connection failed'}`;
-            speaker = 'System';
-          }
-        }
-
-        // Check if we should ignore this message (to prevent loops)
-        if (shouldIgnoreMessage(data, messageType, messageContent)) {
-          console.log('🚫 Ignoring message to prevent loop:', { messageType, messageContent });
-          return;
-        }
-
-        // Capture meaningful messages only
-        if (messageContent && typeof messageContent === 'string' && messageContent.trim().length > 0) {
-          console.log(`💬 Capturing ${speaker} message (${messageType}):`, messageContent.substring(0, 100));
+        console.log('✅ Message passed filtering, processing:', data);
+        
+        // Extract conversation content from allowed messages
+        let messageContent = '';
+        let speaker = 'System';
+        
+        // Try to extract meaningful conversation content
+        if (data.text || data.content || data.message || data.transcript) {
+          messageContent = data.text || data.content || data.message || data.transcript;
           
-          saveTranscript({
-            session_id: sessionIdRef.current,
-            speaker,
-            content: messageContent.trim(),
-            timestamp,
-            metadata: {
-              type: messageType,
-              originalData: data,
-              origin: event.origin,
-              fullMessage: data
-            }
-          });
-        } else {
-          console.log('⚠️ No extractable content from message:', data);
+          // Determine speaker based on message structure
+          if (data.type?.includes('user') || data.from === 'user') {
+            speaker = 'User';
+          } else if (data.type?.includes('avatar') || data.type?.includes('assistant') || data.from === 'avatar') {
+            speaker = 'AI Avatar';
+          }
+          
+          // Only save if we have actual content
+          if (messageContent && messageContent.trim().length > 0) {
+            console.log(`💬 Capturing conversation: ${speaker} said "${messageContent}"`);
+            
+            saveTranscript({
+              session_id: sessionIdRef.current,
+              speaker,
+              content: messageContent.trim(),
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: data.type,
+                origin: event.origin,
+                rawData: data
+              }
+            });
+          }
         }
-      } else if (typeof event.data === 'string') {
-        // Handle string messages
+      }
+      
+      // Handle string messages (if they contain conversation content)
+      else if (typeof event.data === 'string') {
         console.log('📝 String message received:', event.data);
         
-        // Check if we should ignore this string message
-        if (shouldIgnoreMessage(null, 'string', event.data)) {
-          console.log('🚫 Ignoring string message to prevent loop:', event.data);
-          return;
-        }
-        
-        if (event.data.trim().length > 0) {
+        // Only save meaningful string content (not system messages)
+        if (event.data.trim().length > 0 && 
+            !event.data.includes('ready') && 
+            !event.data.includes('loaded') &&
+            !event.data.includes('intercom')) {
+          
           saveTranscript({
             session_id: sessionIdRef.current,
             speaker: 'System',
             content: event.data.trim(),
-            timestamp,
+            timestamp: new Date().toISOString(),
             metadata: {
               type: 'string_message',
               origin: event.origin
@@ -375,7 +365,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
             Messages: {messageCount} | Saved: {savedTranscripts} | Status: {connectionStatus}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            💡 <strong>Tip:</strong> System events like 'intercom-snippet' are now filtered out to prevent loops. Only meaningful conversation messages will be captured.
+            💡 <strong>Tip:</strong> System events are now completely blocked. Only actual conversation content (user speech, avatar responses) will be captured. Try speaking to the avatar to test transcript capture.
           </p>
         </div>
       </CardContent>
