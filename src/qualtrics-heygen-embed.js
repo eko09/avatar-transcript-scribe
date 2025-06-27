@@ -261,7 +261,7 @@ Qualtrics.SurveyEngine.addOnUnload(function() {
     try {
         var finalSummary = {
             session_completed: true,
-            total_messages: transcriptData.length || 0,
+            total_messages: 0,
             session_end: new Date().toISOString()
         };
         Qualtrics.SurveyEngine.setEmbeddedData('transcript_session_summary', JSON.stringify(finalSummary));
