@@ -60,16 +60,20 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     const host = "https://labs.heygen.com";
     const url = host + "/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdW5lX0hSX3B1YmxpYyIsInByZXZpZXdJbWciOiJodHRwczovL2ZpbGVzMi5oZXlnZW4uYWkvYXZhdGFyL3YzLzc0NDQ3YTI3ODU5YTQ1NmM5NTVlMDFmMjFlZjE4MjE2XzQ1NjIwL3ByZXZpZXdfdGFsa18xLndlYnAiLCJuZWVkUmVtb3ZlQmFja2dyb3VuZCI6ZmFsc2UsImtub3dsZWRnZUJhc2VJZCI6ImFjODY1MWMzOWNlNTRiNTQ4NTkzOWRhZWM4YjdiZjRlIiwidXNlcm5hbWUiOiJhODQ1OTg5ZWY3NTY0NmY5OWZmY2RhOWNmMDMwMjVlNSJ9&inIFrame=1";
 
+    // Clear any existing content
+    containerRef.current.innerHTML = '';
+
     // Create iframe
     const iframe = document.createElement("iframe");
-    iframe.allowFullscreen = false;
+    iframe.allowFullscreen = true;
     iframe.title = "HeyGen Streaming Avatar";
-    iframe.allow = "microphone";
+    iframe.allow = "microphone; camera; autoplay; encrypted-media";
     iframe.src = url;
     iframe.style.width = "100%";
-    iframe.style.height = "100%";
+    iframe.style.height = "600px";
     iframe.style.border = "none";
     iframe.style.borderRadius = "8px";
+    iframe.style.backgroundColor = "#ffffff";
 
     // Generate session ID for this conversation
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -203,8 +207,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
       <CardContent>
         <div 
           ref={containerRef}
-          className="relative w-full bg-gray-100 rounded-lg"
-          style={{ paddingBottom: '56.25%', height: 0 }}
+          className="relative w-full h-[600px] bg-white rounded-lg border border-gray-200 overflow-hidden"
         >
           {/* iframe will be inserted here by useEffect */}
         </div>
