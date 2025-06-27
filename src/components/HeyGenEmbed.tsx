@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, Wifi, WifiOff, CheckCircle, Clock } from 'lucide-react';
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 
 interface HeyGenEmbedProps {
   onTranscriptSaved: () => void;
@@ -20,9 +21,11 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
   const [messageCount, setMessageCount] = useState(0);
   const [savedTranscripts, setSavedTranscripts] = useState(0);
   const sessionIdRef = useRef<string>('');
+  const [useIframeMode, setUseIframeMode] = useState(false);
   
-  // HeyGen SDK token
+  // HeyGen URLs
   const HEYGEN_TOKEN = 'NDA4NTU0MThhNmRlNGE4ZWEzNzMwMzBjZTAwZTAzNDUtMTc1MDA4NDUyMA==';
+  const HEYGEN_IFRAME_URL = 'https://labs.heygen.com/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdWR5X1RlYWNoZXJfU2l0dGluZzJfcHVibGljIiwicHJldmlld0ltZyI6Imh0dHBzOi8vZmlsZXMyLmhlend.com/avatar/v3/74447a27859a456c955e01f21ef18216_45620/preview_talk_1.webp","needRemoveBackground":false,"knowledgeBaseId":"f4438415581ee42f090a5f2f35f0309be","username":"a845989ef75646f99ffcda9cf030025e5"}&inIFrame=1';
 
   const saveTranscript = async (transcriptData: {
     session_id: string;
@@ -67,6 +70,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
 
       console.log('✅ Transcript saved successfully:', data);
       setSavedTranscripts(prev => prev + 1);
+      setMessageCount(prev => prev + 1);
       
       toast({
         title: "Message Captured",
@@ -86,7 +90,69 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     }
   };
 
-  useEffect(() => {
+  const initializeIframeMode = () => {
+    if (!containerRef.current) return;
+
+    console.log('🔄 Initializing iframe mode...');
+    setConnectionStatus('connecting');
+    
+    // Generate session ID
+    sessionIdRef.current = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create iframe
+    const iframe = document.createElement('iframe');
+    iframe.src = HEYGEN_IFRAME_URL;
+    iframe.width = '100%';
+    iframe.height = '600';
+    iframe.style.border = 'none';
+    iframe.style.borderRadius = '8px';
+    iframe.allow = 'microphone; camera';
+    
+    // Clear and add iframe
+    containerRef.current.innerHTML = '';
+    containerRef.current.appendChild(iframe);
+    
+    // Set up message listener for iframe communication
+    const messageListener = (event: MessageEvent) => {
+      if (event.origin !== 'https://labs.heygen.com') return;
+      
+      console.log('📨 Received message from HeyGen iframe:', event.data);
+      
+      // Handle different message types
+      if (event.data.type === 'AVATAR_READY') {
+        setConnectionStatus('connected');
+        console.log('✅ Avatar ready in iframe mode');
+      } else if (event.data.type === 'CONVERSATION' && event.data.message) {
+        // Save conversation data
+        saveTranscript({
+          session_id: sessionIdRef.current,
+          speaker: event.data.speaker || 'Unknown',
+          content: event.data.message,
+          timestamp: new Date().toISOString(),
+          metadata: {
+            type: 'IFRAME_MESSAGE',
+            source: 'iframe',
+            eventData: event.data
+          }
+        });
+      }
+    };
+
+    window.addEventListener('message', messageListener);
+    
+    // Set connected after a delay (since we can't reliably detect iframe load)
+    setTimeout(() => {
+      setConnectionStatus('connected');
+      console.log('✅ Iframe mode initialized');
+    }, 3000);
+
+    // Store cleanup function
+    (containerRef.current as any)._cleanup = () => {
+      window.removeEventListener('message', messageListener);
+    };
+  };
+
+  const initializeSDKMode = () => {
     if (!containerRef.current) return;
 
     // Generate session ID
@@ -96,69 +162,83 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     // Clear container
     containerRef.current.innerHTML = '';
 
-    // Load HeyGen SDK
-    const script = document.createElement('script');
-    script.src = 'https://sdk.heygen.com/latest/streaming-avatar.js';
-    script.onload = () => {
-      console.log('✅ HeyGen SDK loaded');
-      initializeHeyGenAvatar();
+    // Try multiple SDK URLs
+    const sdkUrls = [
+      'https://sdk.heygen.com/latest/streaming-avatar.js',
+      'https://app.heygen.com/sdk/streaming-avatar.js',
+      'https://api.heygen.com/sdk/streaming-avatar.js'
+    ];
+
+    let currentUrlIndex = 0;
+
+    const tryLoadSDK = () => {
+      if (currentUrlIndex >= sdkUrls.length) {
+        console.log('❌ All SDK URLs failed, switching to iframe mode');
+        setUseIframeMode(true);
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.src = sdkUrls[currentUrlIndex];
+      script.onload = () => {
+        console.log('✅ HeyGen SDK loaded from:', sdkUrls[currentUrlIndex]);
+        initializeHeyGenAvatar();
+      };
+      script.onerror = () => {
+        console.error('❌ Failed to load SDK from:', sdkUrls[currentUrlIndex]);
+        currentUrlIndex++;
+        tryLoadSDK();
+      };
+      document.head.appendChild(script);
     };
-    script.onerror = () => {
-      console.error('❌ Failed to load HeyGen SDK');
-      setConnectionStatus('failed');
-      setErrorDetails(prev => [...prev, 'Failed to load HeyGen SDK']);
-    };
-    document.head.appendChild(script);
 
     const initializeHeyGenAvatar = () => {
       try {
         console.log('🔄 Initializing HeyGen Avatar...');
         
+        // Check if SDK is available
+        if (!(window as any).HeyGenStreamingAvatar) {
+          console.error('❌ HeyGen SDK not found in window object');
+          setUseIframeMode(true);
+          return;
+        }
+
         // Initialize HeyGen Streaming Avatar
         const avatar = new (window as any).HeyGenStreamingAvatar({
           token: HEYGEN_TOKEN,
           container: containerRef.current,
-          avatarId: 'Judy_Teacher_Sitting2_public', // Based on your embed URL
+          avatarId: 'Judy_Teacher_Sitting2_public',
           quality: 'high',
-          knowledgeBaseId: 'f4438415581ee42f090a5f2f35f0309be', // From your embed URL
+          knowledgeBaseId: 'f4438415581ee42f090a5f2f35f0309be',
         });
 
-        // Set up event listeners for conversation capture
+        // Set up event listeners
         avatar.on('AVATAR_TALKING_MESSAGE', (event: any) => {
           console.log('🤖 Avatar talking:', event);
-          
           if (event.message && event.message.trim()) {
             saveTranscript({
               session_id: sessionIdRef.current,
               speaker: 'AI Avatar',
               content: event.message.trim(),
               timestamp: new Date().toISOString(),
-              metadata: {
-                type: 'AVATAR_TALKING_MESSAGE',
-                eventData: event
-              }
+              metadata: { type: 'AVATAR_TALKING_MESSAGE', eventData: event }
             });
           }
         });
 
         avatar.on('USER_TALKING_MESSAGE', (event: any) => {
           console.log('👤 User talking:', event);
-          
           if (event.message && event.message.trim()) {
             saveTranscript({
               session_id: sessionIdRef.current,
               speaker: 'User',
               content: event.message.trim(),
               timestamp: new Date().toISOString(),
-              metadata: {
-                type: 'USER_TALKING_MESSAGE',
-                eventData: event
-              }
+              metadata: { type: 'USER_TALKING_MESSAGE', eventData: event }
             });
           }
         });
 
-        // Handle connection events
         avatar.on('AVATAR_READY', () => {
           console.log('✅ Avatar ready');
           setConnectionStatus('connected');
@@ -168,11 +248,6 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           console.error('❌ Connection error:', error);
           setConnectionStatus('failed');
           setErrorDetails(prev => [...prev, `Connection error: ${error.message || 'Unknown error'}`]);
-        });
-
-        avatar.on('CONNECTION_CLOSED', () => {
-          console.log('🔌 Connection closed');
-          setConnectionStatus('disconnected');
         });
 
         // Start the avatar
@@ -192,29 +267,52 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         console.error('❌ Error initializing HeyGen Avatar:', error);
         setConnectionStatus('failed');
         setErrorDetails(prev => [...prev, `Initialization error: ${(error as Error).message}`]);
+        setUseIframeMode(true);
       }
     };
 
+    tryLoadSDK();
+  };
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    setConnectionStatus('connecting');
+    setErrorDetails([]);
+
+    if (useIframeMode) {
+      initializeIframeMode();
+    } else {
+      initializeSDKMode();
+    }
+
     // Cleanup function
     return () => {
-      console.log('🧹 Cleaning up HeyGen SDK');
+      console.log('🧹 Cleaning up HeyGen component');
       
-      // Clean up avatar instance
-      if (containerRef.current && (containerRef.current as any)._avatar) {
-        try {
-          (containerRef.current as any)._avatar.destroy();
-        } catch (error) {
-          console.warn('⚠️ Error during avatar cleanup:', error);
+      if (containerRef.current) {
+        // Clean up avatar instance
+        if ((containerRef.current as any)._avatar) {
+          try {
+            (containerRef.current as any)._avatar.destroy();
+          } catch (error) {
+            console.warn('⚠️ Error during avatar cleanup:', error);
+          }
+        }
+        
+        // Clean up iframe listeners
+        if ((containerRef.current as any)._cleanup) {
+          (containerRef.current as any)._cleanup();
         }
       }
       
       // Remove script if it exists
-      const existingScript = document.querySelector('script[src="https://sdk.heygen.com/latest/streaming-avatar.js"]');
-      if (existingScript) {
-        document.head.removeChild(existingScript);
+      const existingScript = document.querySelector('script[src*="heygen"]');
+      if (existingScript && existingScript.parentNode) {
+        existingScript.parentNode.removeChild(existingScript);
       }
     };
-  }, [onTranscriptSaved]);
+  }, [useIframeMode, onTranscriptSaved]);
 
   const getStatusIcon = () => {
     switch (connectionStatus) {
@@ -234,9 +332,9 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
   const getStatusText = () => {
     switch (connectionStatus) {
       case 'connected':
-        return 'Connected to HeyGen';
+        return `Connected via ${useIframeMode ? 'Iframe' : 'SDK'}`;
       case 'connecting':
-        return 'Connecting to HeyGen...';
+        return `Connecting via ${useIframeMode ? 'Iframe' : 'SDK'}...`;
       case 'failed':
         return 'Connection failed';
       case 'disconnected':
@@ -260,9 +358,21 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
             </span>
           </div>
         </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          Session: {sessionIdRef.current} | Messages: {messageCount} | Saved: {savedTranscripts}
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Session: {sessionIdRef.current} | Messages: {messageCount} | Saved: {savedTranscripts}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setUseIframeMode(!useIframeMode)}
+              disabled={connectionStatus === 'connecting'}
+            >
+              Switch to {useIframeMode ? 'SDK' : 'Iframe'} Mode
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         {connectionStatus === 'failed' && (
@@ -270,11 +380,11 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
               <div className="space-y-2">
-                <p><strong>Connection Issues Detected:</strong></p>
+                <p><strong>Issues Detected:</strong></p>
                 <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>Check your internet connection</li>
-                  <li>Verify the HeyGen token is valid</li>
-                  <li>Check browser console for detailed error messages</li>
+                  <li>SDK loading failed - trying iframe mode</li>
+                  <li>Check internet connection</li>
+                  <li>Verify HeyGen service availability</li>
                 </ul>
                 {errorDetails.length > 0 && (
                   <div className="mt-2">
@@ -297,7 +407,9 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <Clock className="h-8 w-8 animate-pulse mx-auto mb-2 text-yellow-500" />
-                <p className="text-sm text-muted-foreground">Loading HeyGen Avatar...</p>
+                <p className="text-sm text-muted-foreground">
+                  Loading HeyGen Avatar ({useIframeMode ? 'Iframe' : 'SDK'} mode)...
+                </p>
               </div>
             </div>
           )}
@@ -305,11 +417,13 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         
         <div className="p-3 bg-muted rounded-lg">
           <p className="text-sm text-muted-foreground">
-            <strong>SDK Info:</strong> Session: {sessionIdRef.current} | 
-            Messages: {messageCount} | Saved: {savedTranscripts} | Status: {connectionStatus}
+            <strong>Mode:</strong> {useIframeMode ? 'Iframe' : 'SDK'} | 
+            <strong> Session:</strong> {sessionIdRef.current} | 
+            <strong> Messages:</strong> {messageCount} | 
+            <strong> Saved:</strong> {savedTranscripts}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            💡 <strong>Using HeyGen SDK:</strong> Now capturing AVATAR_TALKING_MESSAGE and USER_TALKING_MESSAGE events directly from the SDK.
+            💡 <strong>Auto-fallback enabled:</strong> If SDK fails, automatically switches to iframe mode for better reliability.
           </p>
         </div>
       </CardContent>
