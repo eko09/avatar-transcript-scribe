@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,6 +20,38 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
   const [messageCount, setMessageCount] = useState(0);
   const [savedTranscripts, setSavedTranscripts] = useState(0);
   const sessionIdRef = useRef<string>('');
+
+  // Filter out unwanted system events that cause loops
+  const shouldIgnoreMessage = (data: any, messageType: string, messageContent: string): boolean => {
+    // Ignore intercom and other third-party events
+    if (messageType.includes('intercom') || messageContent.includes('intercom')) {
+      return true;
+    }
+    
+    // Ignore empty or whitespace-only content
+    if (!messageContent || messageContent.trim().length === 0) {
+      return true;
+    }
+    
+    // Ignore generic system ready events
+    if (messageType === 'ready' && messageContent === 'HeyGen event: ready') {
+      return true;
+    }
+    
+    // Only capture meaningful conversation content
+    const meaningfulEvents = [
+      'user_message', 'avatar_message', 'user_speech', 'avatar_speech',
+      'speech_recognition', 'text_to_speech', 'conversation'
+    ];
+    
+    // If it's a HeyGen event, only allow specific meaningful ones
+    if (messageContent.startsWith('HeyGen event:')) {
+      const eventType = messageContent.replace('HeyGen event: ', '');
+      return !meaningfulEvents.some(event => eventType.includes(event));
+    }
+    
+    return false;
+  };
 
   const saveTranscript = async (transcriptData: {
     session_id: string;
@@ -109,7 +142,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     iframe.style.borderRadius = "8px";
     iframe.style.backgroundColor = "#ffffff";
 
-    // Message handler with comprehensive logging and capture
+    // Message handler with filtering to prevent loops
     const handleMessage = (event: MessageEvent) => {
       console.log('📨 Raw message received:', {
         origin: event.origin,
@@ -177,7 +210,13 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           }
         }
 
-        // Capture ANY message with text content
+        // Check if we should ignore this message (to prevent loops)
+        if (shouldIgnoreMessage(data, messageType, messageContent)) {
+          console.log('🚫 Ignoring message to prevent loop:', { messageType, messageContent });
+          return;
+        }
+
+        // Capture meaningful messages only
         if (messageContent && typeof messageContent === 'string' && messageContent.trim().length > 0) {
           console.log(`💬 Capturing ${speaker} message (${messageType}):`, messageContent.substring(0, 100));
           
@@ -199,6 +238,13 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
       } else if (typeof event.data === 'string') {
         // Handle string messages
         console.log('📝 String message received:', event.data);
+        
+        // Check if we should ignore this string message
+        if (shouldIgnoreMessage(null, 'string', event.data)) {
+          console.log('🚫 Ignoring string message to prevent loop:', event.data);
+          return;
+        }
+        
         if (event.data.trim().length > 0) {
           saveTranscript({
             session_id: sessionIdRef.current,
@@ -221,15 +267,6 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     iframe.onload = () => {
       console.log('✅ Iframe loaded successfully');
       setConnectionStatus('connected');
-      
-      // Save session start
-      saveTranscript({
-        session_id: sessionIdRef.current,
-        speaker: 'System',
-        content: 'HeyGen iframe loaded successfully',
-        timestamp: new Date().toISOString(),
-        metadata: { event: 'iframe_loaded' }
-      });
     };
 
     iframe.onerror = (error) => {
@@ -338,7 +375,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
             Messages: {messageCount} | Saved: {savedTranscripts} | Status: {connectionStatus}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            💡 <strong>Tip:</strong> After having a conversation with the avatar, check the browser console (F12) to see what messages are being captured.
+            💡 <strong>Tip:</strong> System events like 'intercom-snippet' are now filtered out to prevent loops. Only meaningful conversation messages will be captured.
           </p>
         </div>
       </CardContent>
