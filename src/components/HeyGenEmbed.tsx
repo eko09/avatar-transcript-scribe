@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
@@ -69,7 +68,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     if (!containerRef.current) return;
 
     const host = "https://labs.heygen.com";
-    const url = host + "/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdW5lX0hSX3B1YmxpYyIsInByZXZpZXdJbWciOiJodHRwczovL2ZpbGVzMi5oZXlnZW4uYWkvYXZhdGFyL3YzLzc0NDQ3YTI3ODU5YTQ1NmM5NTVlMDFmMjFlZjE4MjE2XzQ1NjIwL3ByZXZpZXdfdGFsa18xLndlYnAiLCJuZWVkUmVtb3ZlQmFja2dyb3VuZCI6ZmFsc2UsImtub3dsZWRnZUJhc2VJZCI6ImFjODY1MWMzOWNlNTRiNTQ4NTkzOWRhZWM4YjdiZjRlIiwidXNlcm5hbWUiOiJhODQ1OTg5ZWY3NTY0NmY5OWZmY2RhOWNmMDMwMjVlNSJ9&inIFrame=1";
+    const url = host + "/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdWR5X1RlYWNoZXJfU2l0dGluZzJfcHVi%0D%0AbGljIiwicHJldmlld0ltZyI6Imh0dHBzOi8vZmlsZXMyLmhleWdlbi5haS9hdmF0YXIvdjMvZjk0%0D%0AYWUzZTg5ZjRjNGZmOTg1NDFhYjU5ZWZhNTg3OGJfNDU2MzAvcHJldmlld190YWxrXzIud2VicCIs%0D%0AIm5lZWRSZW1vdmVCYWNrZ3JvdW5kIjpmYWxzZSwia25vd2xlZGdlQmFzZUlkIjoiZjQ0Mzg0MTU4%0D%0AMWVlNDJmMDkwYTVmMmYzNWYwMzA5YmUiLCJ1c2VybmFtZSI6IjQwODU1NDE4YTZkZTRhOGVhMzcz%0D%0AMDMwY2UwMGUwMzQ1In0%3D&inIFrame=1";
 
     // Clear any existing content
     containerRef.current.innerHTML = '';
@@ -118,7 +117,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         
         // Track connection status
         if (data.type === 'streaming-embed') {
-          if (data.action === 'ready' || data.action === 'connected') {
+          if (data.action === 'ready' || data.action === 'connected' || data.action === 'init') {
             setConnectionStatus('connected');
             setErrorDetails([]);
           } else if (data.action === 'error' || data.action === 'failed') {
@@ -148,7 +147,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           console.log('Event type detected:', messageType);
         }
 
-        // Extract content from various possible formats
+        // Enhanced content extraction
         if (data.content) {
           content = data.content;
         } else if (data.message) {
@@ -157,27 +156,35 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           content = data.text;
         } else if (data.transcript) {
           content = data.transcript;
-        } else if (data.payload && typeof data.payload === 'string') {
-          try {
-            const payload = JSON.parse(data.payload);
-            if (payload.text || payload.content || payload.message) {
-              content = payload.text || payload.content || payload.message;
+        } else if (data.response) {
+          content = data.response;
+        } else if (data.data && typeof data.data === 'string') {
+          content = data.data;
+        } else if (data.payload) {
+          if (typeof data.payload === 'string') {
+            try {
+              const payload = JSON.parse(data.payload);
+              content = payload.text || payload.content || payload.message || payload.transcript || '';
+            } catch (e) {
+              content = data.payload;
             }
-          } catch (e) {
-            // payload is not JSON
+          } else if (typeof data.payload === 'object') {
+            content = data.payload.text || data.payload.content || data.payload.message || data.payload.transcript || '';
           }
-        } else if (typeof data === 'string') {
-          content = data;
         }
 
         // Enhanced speaker detection
         if (data.speaker) {
           speaker = data.speaker;
-        } else if (data.from === 'user' || data.source === 'user' || messageType.includes('user')) {
+        } else if (data.from === 'user' || data.source === 'user' || messageType.includes('user') || data.role === 'user') {
           speaker = 'User';
-        } else if (data.from === 'assistant' || data.from === 'ai' || data.source === 'ai' || messageType.includes('ai') || messageType.includes('assistant')) {
+        } else if (data.from === 'assistant' || data.from === 'ai' || data.source === 'ai' || messageType.includes('ai') || messageType.includes('assistant') || data.role === 'assistant') {
           speaker = 'AI Avatar';
         } else if (messageType.includes('avatar') || messageType.includes('bot')) {
+          speaker = 'AI Avatar';
+        } else if (data.action === 'user_message' || data.type === 'user_input') {
+          speaker = 'User';
+        } else if (data.action === 'bot_message' || data.type === 'bot_response') {
           speaker = 'AI Avatar';
         }
 
@@ -194,7 +201,9 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
               messageType: messageType,
               originalData: data,
               origin: event.origin,
-              messageCount: messageCount
+              messageCount: messageCount,
+              action: data.action || null,
+              event: data.event || null
             },
           });
         } else {
@@ -203,11 +212,11 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         }
 
         // Handle system events with more specificity
-        if (messageType === 'conversation_started' || messageType === 'session_start' || data.action === 'start') {
+        if (messageType === 'conversation_started' || messageType === 'session_start' || data.action === 'start' || data.action === 'init') {
           saveTranscript({
             session_id: sessionId,
             speaker: 'System',
-            content: `Conversation started (${messageType})`,
+            content: `Conversation started with new avatar (${messageType})`,
             timestamp: new Date().toISOString(),
             metadata: {
               messageType: 'system_event',
@@ -249,10 +258,10 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
 
     // Enhanced connection monitoring
     iframe.onload = () => {
-      console.log('🚀 Iframe loaded successfully');
+      console.log('🚀 Iframe loaded successfully with new avatar');
       setConnectionStatus('connecting');
       
-      // Send initialization messages with more variety
+      // Send initialization messages
       setTimeout(() => {
         const initMessages = [
           { type: 'init', session_id: sessionId, timestamp: new Date().toISOString() },
@@ -260,7 +269,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           { action: 'connect', session_id: sessionId },
           { event: 'ready', session_id: sessionId },
           { type: 'streaming-embed', action: 'init' },
-          { type: 'transcript_request', enabled: true }
+          { type: 'transcript_request', enabled: true, session_id: sessionId }
         ];
 
         initMessages.forEach((msg, index) => {
@@ -320,7 +329,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          <span>HeyGen AI Avatar</span>
+          <span>HeyGen AI Avatar (Judy Teacher)</span>
           <div className="flex items-center space-x-2 text-sm">
             {getStatusIcon()}
             <span className={`${connectionStatus === 'connected' ? 'text-green-600' : 
@@ -343,17 +352,9 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
               <div className="space-y-2">
                 <p><strong>Connection Issues Detected:</strong></p>
                 <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>Knowledge base not found (404 error)</li>
-                  <li>WebSocket connection failed</li>
-                  <li>Avatar configuration may be invalid</li>
-                </ul>
-                <p className="text-sm mt-2">
-                  <strong>Possible solutions:</strong>
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>Get a fresh HeyGen embed URL from your HeyGen account</li>
-                  <li>Check if the avatar/knowledge base still exists</li>
-                  <li>Verify sharing permissions in HeyGen</li>
+                  <li>Check if the new avatar configuration is working</li>
+                  <li>Verify the knowledge base is accessible</li>
+                  <li>Ensure sharing permissions are enabled</li>
                 </ul>
               </div>
             </AlertDescription>
@@ -371,7 +372,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           <div className="p-3 bg-muted rounded-lg">
             <p className="text-sm text-muted-foreground">
               <strong>Debug Info:</strong> Messages received: {messageCount} | 
-              Status: {connectionStatus} | Check console for details
+              Status: {connectionStatus} | New Avatar: Judy Teacher
             </p>
           </div>
           
