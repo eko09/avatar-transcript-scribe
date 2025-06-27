@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar, User, MessageSquare, Search, RefreshCw } from "lucide-react";
+import { Calendar, User, MessageSquare, Search } from "lucide-react";
 import TranscriptsList from "@/components/TranscriptsList";
 import HeyGenEmbed from "@/components/HeyGenEmbed";
 import { useToast } from "@/hooks/use-toast";
@@ -25,7 +25,6 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSession, setSelectedSession] = useState<string>('');
-  const [autoRefresh, setAutoRefresh] = useState(true);
   const { toast } = useToast();
 
   const fetchTranscripts = async () => {
@@ -76,29 +75,9 @@ const Dashboard = () => {
     fetchTranscripts();
   }, [searchTerm, selectedSession]);
 
-  // Auto-refresh every 10 seconds when on transcripts tab
-  useEffect(() => {
-    if (!autoRefresh) return;
-    
-    const interval = setInterval(() => {
-      console.log('🔄 Auto-refreshing transcripts...');
-      fetchTranscripts();
-    }, 10000);
-
-    return () => clearInterval(interval);
-  }, [autoRefresh, searchTerm, selectedSession]);
-
   const handleTranscriptSaved = () => {
     console.log('📝 Transcript saved, refreshing dashboard...');
     fetchTranscripts();
-  };
-
-  const toggleAutoRefresh = () => {
-    setAutoRefresh(!autoRefresh);
-    toast({
-      title: autoRefresh ? "Auto-refresh disabled" : "Auto-refresh enabled",
-      description: autoRefresh ? "Transcripts will no longer refresh automatically" : "Transcripts will refresh every 10 seconds",
-    });
   };
 
   const uniqueSessions = [...new Set(transcripts.map(t => t.session_id))];
@@ -112,16 +91,6 @@ const Dashboard = () => {
           <div>
             <h1 className="text-3xl font-bold">HeyGen Transcript Dashboard</h1>
             <p className="text-muted-foreground">Manage and analyze your AI avatar conversations</p>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant={autoRefresh ? "default" : "outline"}
-              size="sm"
-              onClick={toggleAutoRefresh}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${autoRefresh ? 'animate-spin' : ''}`} />
-              Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
-            </Button>
           </div>
         </div>
 
@@ -159,7 +128,7 @@ const Dashboard = () => {
             <CardContent>
               <div className="text-2xl font-bold">{uniqueSessions.length}</div>
               <p className="text-xs text-muted-foreground">
-                Auto-refresh: {autoRefresh ? 'Enabled' : 'Disabled'}
+                Manual refresh enabled
               </p>
             </CardContent>
           </Card>
