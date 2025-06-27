@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,61 +20,9 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
   const [messageCount, setMessageCount] = useState(0);
   const [savedTranscripts, setSavedTranscripts] = useState(0);
   const sessionIdRef = useRef<string>('');
-
-  // Comprehensive filter to block all unwanted system events
-  const shouldIgnoreMessage = (data: any): boolean => {
-    // Block all intercom-related events
-    if (data?.type?.includes('intercom')) {
-      console.log('🚫 Blocking intercom event:', data.type);
-      return true;
-    }
-    
-    // Block specific system events that don't contain conversation content
-    const blockedSystemEvents = [
-      'intercom-snippet__ready',
-      'ready',
-      'iframe_loaded',
-      'session_start',
-      'connection_ready',
-      'widget_ready',
-      'embed_ready'
-    ];
-    
-    if (data?.type && blockedSystemEvents.includes(data.type)) {
-      console.log('🚫 Blocking system event:', data.type);
-      return true;
-    }
-    
-    // Only allow events that contain actual conversation content
-    const allowedEvents = [
-      'user_input',
-      'user_message', 
-      'user_speech',
-      'user_transcript',
-      'avatar_response',
-      'avatar_message',
-      'avatar_speech', 
-      'avatar_transcript',
-      'conversation_turn',
-      'speech_recognition_result',
-      'tts_result',
-      'dialogue',
-      'chat_message'
-    ];
-    
-    // If it's a structured event, only allow conversation-related ones
-    if (data?.type) {
-      const isAllowed = allowedEvents.some(event => 
-        data.type.toLowerCase().includes(event.toLowerCase())
-      );
-      if (!isAllowed) {
-        console.log('🚫 Blocking non-conversation event:', data.type);
-        return true;
-      }
-    }
-    
-    return false;
-  };
+  
+  // HeyGen SDK token
+  const HEYGEN_TOKEN = 'NDA4NTU0MThhNmRlNGE4ZWEzNzMwMzBjZTAwZTAzNDUtMTc1MDA4NDUyMA==';
 
   const saveTranscript = async (transcriptData: {
     session_id: string;
@@ -85,13 +34,11 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
     try {
       console.log('🔄 Attempting to save transcript:', transcriptData);
       
-      // Validate required fields
       if (!transcriptData.session_id || !transcriptData.speaker || !transcriptData.content) {
         console.error('❌ Missing required fields:', transcriptData);
         return false;
       }
 
-      // Ensure content is not empty or just whitespace
       if (transcriptData.content.trim().length === 0) {
         console.log('⚠️ Skipping empty content');
         return false;
@@ -142,138 +89,129 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const host = "https://labs.heygen.com";
-    const url = host + "/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdWR5X1RlYWNoZXJfU2l0dGluZzJfcHVi%0D%0AbGljIiwicHJldmlld0ltZyI6Imh0dHBzOi8vZmlsZXMyLmhleWdlbi5haS9hdmF0YXIvdjMvZjk0%0D%0AYWUzZTg5ZjRjNGZmOTg1NDFhYjU5ZWZhNTg3OGJfNDU2MzAvcHJldmlld190YWxrXzIud2VicCIs%0D%0AIm5lZWRSZW1vdmVCYWNrZ3JvdW5kIjpmYWxzZSwia25vd2xlZGdlQmFzZUlkIjoiZjQ0Mzg0MTU4%0D%0AMWVlNDJmMDkwYTVmMmYzNWYwMzA5YmUiLCJ1c2VybmFtZSI6IjQwODU1NDE4YTZkZTRhOGVhMzcz%0D%0AMDMwY2UwMGUwMzQ1In0%3D&inIFrame=1";
-
-    // Generate session ID once
+    // Generate session ID
     sessionIdRef.current = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    console.log('🚀 Starting HeyGen session:', sessionIdRef.current);
+    console.log('🚀 Starting HeyGen SDK session:', sessionIdRef.current);
 
     // Clear container
     containerRef.current.innerHTML = '';
 
-    // Create iframe
-    const iframe = document.createElement("iframe");
-    iframe.allowFullscreen = true;
-    iframe.title = "HeyGen Streaming Avatar";
-    iframe.allow = "microphone; camera; autoplay; encrypted-media";
-    iframe.src = url;
-    iframe.style.width = "100%";
-    iframe.style.height = "600px";
-    iframe.style.border = "none";
-    iframe.style.borderRadius = "8px";
-    iframe.style.backgroundColor = "#ffffff";
+    // Load HeyGen SDK
+    const script = document.createElement('script');
+    script.src = 'https://sdk.heygen.com/latest/streaming-avatar.js';
+    script.onload = () => {
+      console.log('✅ HeyGen SDK loaded');
+      initializeHeyGenAvatar();
+    };
+    script.onerror = () => {
+      console.error('❌ Failed to load HeyGen SDK');
+      setConnectionStatus('failed');
+      setErrorDetails(prev => [...prev, 'Failed to load HeyGen SDK']);
+    };
+    document.head.appendChild(script);
 
-    // Message handler with strict filtering
-    const handleMessage = (event: MessageEvent) => {
-      console.log('📨 Raw message received:', {
-        origin: event.origin,
-        data: event.data,
-        type: typeof event.data,
-        stringified: JSON.stringify(event.data)
-      });
+    const initializeHeyGenAvatar = () => {
+      try {
+        console.log('🔄 Initializing HeyGen Avatar...');
+        
+        // Initialize HeyGen Streaming Avatar
+        const avatar = new (window as any).HeyGenStreamingAvatar({
+          token: HEYGEN_TOKEN,
+          container: containerRef.current,
+          avatarId: 'Judy_Teacher_Sitting2_public', // Based on your embed URL
+          quality: 'high',
+          knowledgeBaseId: 'f4438415581ee42f090a5f2f35f0309be', // From your embed URL
+        });
 
-      // Security check - only allow HeyGen origins
-      if (!event.origin.includes('heygen.com') && !event.origin.includes('labs.heygen.com')) {
-        console.log('🚫 Rejected message from invalid origin:', event.origin);
-        return;
-      }
-
-      setMessageCount(prev => prev + 1);
-
-      // Handle structured object messages
-      if (event.data && typeof event.data === 'object') {
-        const data = event.data;
-        
-        // Apply strict filtering - block unwanted system events immediately
-        if (shouldIgnoreMessage(data)) {
-          return; // Don't process this message at all
-        }
-        
-        console.log('✅ Message passed filtering, processing:', data);
-        
-        // Extract conversation content from allowed messages
-        let messageContent = '';
-        let speaker = 'System';
-        
-        // Try to extract meaningful conversation content
-        if (data.text || data.content || data.message || data.transcript) {
-          messageContent = data.text || data.content || data.message || data.transcript;
+        // Set up event listeners for conversation capture
+        avatar.on('AVATAR_TALKING_MESSAGE', (event: any) => {
+          console.log('🤖 Avatar talking:', event);
           
-          // Determine speaker based on message structure
-          if (data.type?.includes('user') || data.from === 'user') {
-            speaker = 'User';
-          } else if (data.type?.includes('avatar') || data.type?.includes('assistant') || data.from === 'avatar') {
-            speaker = 'AI Avatar';
-          }
-          
-          // Only save if we have actual content
-          if (messageContent && messageContent.trim().length > 0) {
-            console.log(`💬 Capturing conversation: ${speaker} said "${messageContent}"`);
-            
+          if (event.message && event.message.trim()) {
             saveTranscript({
               session_id: sessionIdRef.current,
-              speaker,
-              content: messageContent.trim(),
+              speaker: 'AI Avatar',
+              content: event.message.trim(),
               timestamp: new Date().toISOString(),
               metadata: {
-                type: data.type,
-                origin: event.origin,
-                rawData: data
+                type: 'AVATAR_TALKING_MESSAGE',
+                eventData: event
               }
             });
           }
-        }
-      }
-      
-      // Handle string messages (if they contain conversation content)
-      else if (typeof event.data === 'string') {
-        console.log('📝 String message received:', event.data);
-        
-        // Only save meaningful string content (not system messages)
-        if (event.data.trim().length > 0 && 
-            !event.data.includes('ready') && 
-            !event.data.includes('loaded') &&
-            !event.data.includes('intercom')) {
+        });
+
+        avatar.on('USER_TALKING_MESSAGE', (event: any) => {
+          console.log('👤 User talking:', event);
           
-          saveTranscript({
-            session_id: sessionIdRef.current,
-            speaker: 'System',
-            content: event.data.trim(),
-            timestamp: new Date().toISOString(),
-            metadata: {
-              type: 'string_message',
-              origin: event.origin
-            }
-          });
-        }
+          if (event.message && event.message.trim()) {
+            saveTranscript({
+              session_id: sessionIdRef.current,
+              speaker: 'User',
+              content: event.message.trim(),
+              timestamp: new Date().toISOString(),
+              metadata: {
+                type: 'USER_TALKING_MESSAGE',
+                eventData: event
+              }
+            });
+          }
+        });
+
+        // Handle connection events
+        avatar.on('AVATAR_READY', () => {
+          console.log('✅ Avatar ready');
+          setConnectionStatus('connected');
+        });
+
+        avatar.on('CONNECTION_ERROR', (error: any) => {
+          console.error('❌ Connection error:', error);
+          setConnectionStatus('failed');
+          setErrorDetails(prev => [...prev, `Connection error: ${error.message || 'Unknown error'}`]);
+        });
+
+        avatar.on('CONNECTION_CLOSED', () => {
+          console.log('🔌 Connection closed');
+          setConnectionStatus('disconnected');
+        });
+
+        // Start the avatar
+        avatar.start().then(() => {
+          console.log('✅ HeyGen Avatar started successfully');
+          setConnectionStatus('connected');
+        }).catch((error: any) => {
+          console.error('❌ Failed to start avatar:', error);
+          setConnectionStatus('failed');
+          setErrorDetails(prev => [...prev, `Failed to start avatar: ${error.message || 'Unknown error'}`]);
+        });
+
+        // Store avatar reference for cleanup
+        (containerRef.current as any)._avatar = avatar;
+
+      } catch (error) {
+        console.error('❌ Error initializing HeyGen Avatar:', error);
+        setConnectionStatus('failed');
+        setErrorDetails(prev => [...prev, `Initialization error: ${(error as Error).message}`]);
       }
     };
-
-    // Add message listener
-    window.addEventListener('message', handleMessage);
-
-    // Handle iframe load
-    iframe.onload = () => {
-      console.log('✅ Iframe loaded successfully');
-      setConnectionStatus('connected');
-    };
-
-    iframe.onerror = (error) => {
-      console.error('❌ Iframe loading error:', error);
-      setConnectionStatus('failed');
-      setErrorDetails(prev => [...prev, 'Iframe failed to load']);
-    };
-
-    // Append iframe
-    containerRef.current.appendChild(iframe);
 
     // Cleanup function
     return () => {
-      console.log('🧹 Cleaning up HeyGen embed');
-      window.removeEventListener('message', handleMessage);
-      if (containerRef.current && iframe.parentNode) {
-        containerRef.current.removeChild(iframe);
+      console.log('🧹 Cleaning up HeyGen SDK');
+      
+      // Clean up avatar instance
+      if (containerRef.current && (containerRef.current as any)._avatar) {
+        try {
+          (containerRef.current as any)._avatar.destroy();
+        } catch (error) {
+          console.warn('⚠️ Error during avatar cleanup:', error);
+        }
+      }
+      
+      // Remove script if it exists
+      const existingScript = document.querySelector('script[src="https://sdk.heygen.com/latest/streaming-avatar.js"]');
+      if (existingScript) {
+        document.head.removeChild(existingScript);
       }
     };
   }, [onTranscriptSaved]);
@@ -327,7 +265,6 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Connection Status Alert */}
         {connectionStatus === 'failed' && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -336,7 +273,7 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
                 <p><strong>Connection Issues Detected:</strong></p>
                 <ul className="list-disc list-inside space-y-1 text-sm">
                   <li>Check your internet connection</li>
-                  <li>Verify the HeyGen avatar is properly configured</li>
+                  <li>Verify the HeyGen token is valid</li>
                   <li>Check browser console for detailed error messages</li>
                 </ul>
                 {errorDetails.length > 0 && (
@@ -356,16 +293,23 @@ const HeyGenEmbed: React.FC<HeyGenEmbedProps> = ({ onTranscriptSaved }) => {
           ref={containerRef}
           className="relative w-full h-[600px] bg-white rounded-lg border border-gray-200 overflow-hidden"
         >
-          {/* iframe will be inserted here by useEffect */}
+          {connectionStatus === 'connecting' && (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <Clock className="h-8 w-8 animate-pulse mx-auto mb-2 text-yellow-500" />
+                <p className="text-sm text-muted-foreground">Loading HeyGen Avatar...</p>
+              </div>
+            </div>
+          )}
         </div>
         
         <div className="p-3 bg-muted rounded-lg">
           <p className="text-sm text-muted-foreground">
-            <strong>Debug Info:</strong> Session: {sessionIdRef.current} | 
+            <strong>SDK Info:</strong> Session: {sessionIdRef.current} | 
             Messages: {messageCount} | Saved: {savedTranscripts} | Status: {connectionStatus}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            💡 <strong>Tip:</strong> System events are now completely blocked. Only actual conversation content (user speech, avatar responses) will be captured. Try speaking to the avatar to test transcript capture.
+            💡 <strong>Using HeyGen SDK:</strong> Now capturing AVATAR_TALKING_MESSAGE and USER_TALKING_MESSAGE events directly from the SDK.
           </p>
         </div>
       </CardContent>
