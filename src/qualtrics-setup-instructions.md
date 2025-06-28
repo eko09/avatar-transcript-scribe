@@ -2,7 +2,7 @@
 # HeyGen AI Avatar Integration for Qualtrics
 
 ## Overview
-This integration captures HeyGen AI avatar interactions within Qualtrics surveys and saves transcript data to your Supabase database.
+This integration captures HeyGen AI avatar interactions within Qualtrics surveys and saves transcript data to your Supabase database. It now includes proper event listeners for `AVATAR_TALKING_MESSAGE` and `USER_TALKING_MESSAGE` events.
 
 ## Setup Instructions
 
@@ -31,88 +31,135 @@ This integration captures HeyGen AI avatar interactions within Qualtrics surveys
    - Paste it into the JavaScript editor
    - Click "Save"
 
-### 3. Customize Configuration
+### 3. Configuration Variables
 
-Before using, update these variables in the script:
+The script includes these pre-configured settings:
 
 ```javascript
-// Replace with your specific HeyGen avatar URL
-const HEYGEN_EMBED_URL = "YOUR_HEYGEN_EMBED_URL_HERE";
+// HeyGen Configuration
+const HEYGEN_TOKEN = 'NDA4NTU0MThhNmRlNGE4ZWEzNzMwMzBjZTAwZTAzNDUtMTc1MDA4NDUyMA==';
+const HEYGEN_AVATAR_ID = 'Judy_Teacher_Sitting2_public';
+const HEYGEN_KNOWLEDGE_BASE_ID = 'f4438415581ee42f090a5f2f35f0309be';
 
-// Supabase credentials are already configured for your project
+// Supabase credentials (already configured for your project)
 const SUPABASE_URL = "https://xcznuookkehqcfcrhevq.supabase.co";
 const SUPABASE_ANON_KEY = "your_anon_key_here";
 ```
 
-### 4. Test the Integration
+### 4. Event Capture Features
 
-1. **Use the Test Page**:
-   - Open `qualtrics-test-page.html` in a browser
-   - Interact with the avatar to test transcript capture
-   - Check your Supabase dashboard to verify data is being saved
+The integration now properly captures these HeyGen SDK events:
 
-2. **Preview Your Survey**:
-   - Use Qualtrics' preview feature to test the integration
-   - Verify the avatar loads and interactions are captured
+#### Avatar Talking Messages
+```javascript
+avatar.on('AVATAR_TALKING_MESSAGE', (message) => {
+    console.log('🤖 Avatar talking message:', message);
+    // Automatically saves to database with speaker: 'AI Avatar'
+});
+```
+
+#### User Talking Messages  
+```javascript
+avatar.on('USER_TALKING_MESSAGE', (message) => {
+    console.log('👤 User talking message:', message);
+    // Automatically saves to database with speaker: 'User'
+});
+```
+
+#### Additional System Events
+- `AVATAR_READY`: When avatar is ready to interact
+- `STREAM_READY`: When streaming starts
+- `STREAM_DISCONNECTED`: When streaming ends
+- `CONNECTION_ERROR`: When connection issues occur
 
 ### 5. Data Structure
-
-The script captures and stores:
 
 **In Supabase `transcripts` table**:
 - `session_id`: Unique identifier for each survey response
 - `speaker`: "User", "AI Avatar", or "System"
 - `content`: The actual message/transcript content
 - `timestamp`: When the message occurred
-- `metadata`: Additional data including Qualtrics response ID
+- `metadata`: Includes event type, Qualtrics response ID, and original event data
 
 **In Qualtrics Embedded Data**:
 - `transcript_data`: Real-time summary with last 10 messages
-- `transcript_session_summary`: Final session statistics
+- `transcript_session_summary`: Session statistics including message counts
 
-### 6. Message Types Captured
+### 6. Testing the Integration
 
-The integration captures these interaction types:
-- **User messages**: Speech input, text input
-- **Avatar responses**: AI-generated responses
-- **System events**: Session start/end, avatar ready status
-- **Conversation flow**: Start and end of conversations
+1. **Use the Test Page**:
+   - Open `qualtrics-test-page.html` in a browser
+   - Interact with the avatar to test transcript capture
+   - Check browser console for event logging
 
-### 7. Troubleshooting
+2. **Preview Your Survey**:
+   - Use Qualtrics' preview feature
+   - Speak to the avatar and verify messages are captured
+   - Check your Supabase dashboard for saved transcripts
+
+### 7. Message Processing Flow
+
+1. **Event Triggered**: HeyGen SDK fires `AVATAR_TALKING_MESSAGE` or `USER_TALKING_MESSAGE`
+2. **Content Extraction**: Script extracts message content from event data
+3. **Database Save**: Transcript saved to Supabase with metadata
+4. **Qualtrics Update**: Embedded data fields updated with conversation summary
+5. **Console Logging**: Events logged for debugging
+
+### 8. Troubleshooting
 
 **Avatar doesn't load**:
-- Check that your HeyGen embed URL is correct
-- Verify iframe permissions in Qualtrics
-- Check browser console for errors
+- Check browser console for HeyGen SDK loading errors
+- Verify your HeyGen token is valid
+- Ensure iframe permissions allow SDK loading
 
-**Transcript not saving**:
+**Events not capturing**:
+- Check console for event listener registration
+- Verify HeyGen SDK version compatibility
+- Test with browser developer tools network tab
+
+**Database not saving**:
 - Verify Supabase credentials are correct
-- Check network tab for API call errors
-- Ensure RLS policies allow public access
+- Check RLS policies allow public access
+- Monitor Supabase logs for insert errors
 
 **Embedded Data not updating**:
-- Verify field names match exactly: `transcript_data`
-- Check that Embedded Data is set up in Survey Flow
+- Verify field names match exactly in Survey Flow
+- Check Qualtrics JavaScript console for errors
+- Ensure embedded data fields are created before the question
 
-### 8. Privacy and Compliance
+### 9. Console Output Examples
 
-- The script captures all audio interactions as text
-- Data is stored in your Supabase database
-- Consider adding privacy notices to your survey
-- Comply with relevant data protection regulations
+When working correctly, you should see:
+```
+🚀 Initializing HeyGen SDK...
+✅ HeyGen SDK loaded
+✅ Avatar ready
+🤖 Avatar talking message: {message: "Hello! How can I help you today?"}
+📝 AI Avatar: Hello! How can I help you today?
+✅ Transcript saved successfully
+👤 User talking message: {message: "I need help with my homework"}
+📝 User: I need help with my homework
+✅ Transcript saved successfully
+✅ Qualtrics embedded data updated
+```
 
-### 9. Advanced Customization
+### 10. Advanced Features
 
-You can modify the script to:
-- Filter specific message types
-- Add custom metadata fields
-- Implement additional data validation
-- Customize the avatar container styling
+**Custom Event Handling**: The script processes various message formats and extracts content from different event structures.
+
+**Session Tracking**: Each survey response gets a unique session ID for transcript organization.
+
+**Real-time Updates**: Qualtrics embedded data updates in real-time as conversations progress.
+
+**Error Handling**: Comprehensive error handling for connection issues and API failures.
 
 ## Support
 
 If you encounter issues:
-1. Check the browser console for error messages
-2. Verify all configuration parameters
-3. Test with the provided HTML test page first
-4. Check Supabase dashboard for data flow
+1. Check browser console for detailed error messages
+2. Verify all configuration parameters are correct
+3. Test HeyGen SDK events in isolation
+4. Monitor Supabase dashboard for data flow
+5. Check Qualtrics embedded data in Survey Flow
+
+The integration now properly captures both avatar and user messages using the official HeyGen SDK event listeners as documented in the HeyGen SDK reference.

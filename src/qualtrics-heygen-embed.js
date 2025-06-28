@@ -1,272 +1,313 @@
 
+// HeyGen AI Avatar Integration for Qualtrics
+// This script embeds HeyGen avatar and captures conversation transcripts
+
 Qualtrics.SurveyEngine.addOnload(function() {
-    console.log('🚀 HeyGen Qualtrics Integration - Starting...');
+    // Configuration - Update these values for your setup
+    const HEYGEN_TOKEN = 'NDA4NTU0MThhNmRlNGE4ZWEzNzMwMzBjZTAwZTAzNDUtMTc1MDA4NDUyMA==';
+    const HEYGEN_AVATAR_ID = 'Judy_Teacher_Sitting2_public';
+    const HEYGEN_KNOWLEDGE_BASE_ID = 'f4438415581ee42f090a5f2f35f0309be';
     
-    // Configuration - REPLACE WITH YOUR ACTUAL HEYGEN URL
-    var HEYGEN_EMBED_URL = "https://labs.heygen.com/guest/streaming-embed?share=eyJxdWFsaXR5IjoiaGlnaCIsImF2YXRhck5hbWUiOiJKdW5lX0hSX3B1YmxpYyIsInByZXZpZXdJbWciOiJodHRwczovL2ZpbGVzMi5oZXlnZW4uYWkvYXZhdGFyL3YzLzc0NDQ3YTI3ODU5YTQ1NmM5NTVlMDFmMjFlZjE4MjE2XzQ1NjIwL3ByZXZpZXdfdGFsa18xLndlYnAiLCJuZWVkUmVtb3ZlQmFja2dyb3VuZCI6ZmFsc2UsImtub3dsZWRnZUJhc2VJZCI6ImFjODY1MWMzOWNlNTRiNTQ4NTkzOWRhZWM4YjdiZjRlIiwidXNlcm5hbWUiOiJhODQ1OTg5ZWY3NTY0NmY5OWZmY2RhOWNmMDMwMjVlNSJ9&inIFrame=1";
+    // Supabase configuration - Replace with your actual credentials
+    const SUPABASE_URL = "https://xcznuookkehqcfcrhevq.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhjem51b29ra2VocWNmY3JoZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4OTk4NzUsImV4cCI6MjA2NjQ3NTg3NX0.t9rsVefD7nElpgNiH9WGN5CymJrNL_KF_xNJFgNAeCg";
+
+    // Generate unique session ID for this survey response
+    const sessionId = `qualtrics_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const responseId = "${e://Field/ResponseID}"; // Qualtrics embedded data
     
-    // Supabase configuration
-    var SUPABASE_URL = "https://xcznuookkehqcfcrhevq.supabase.co";
-    var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhjem51b29ra2VocWNmY3JoZXZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA4OTk4NzUsImV4cCI6MjA2NjQ3NTg3NX0.t9rsVefD7nElpgNiH9WGN5CymJrNL_KF_xNJFgNAeCg";
-    
-    // Generate unique session ID
-    var sessionId = 'qualtrics_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    var responseId = "${e://Field/ResponseID}";
-    
-    console.log('📋 Session ID:', sessionId);
-    console.log('📋 Response ID:', responseId);
-    
-    // Initialize transcript data storage
-    var transcriptData = [];
-    
-    // Function to save transcript to Supabase
-    function saveToSupabase(transcriptEntry) {
-        var data = {
+    // Storage for conversation data
+    let conversationLog = [];
+    let avatar = null;
+
+    // Initialize Supabase client
+    function initializeSupabase() {
+        if (typeof supabase === 'undefined') {
+            // Load Supabase client library
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+            script.onload = function() {
+                window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                console.log('✅ Supabase client initialized');
+            };
+            document.head.appendChild(script);
+        } else {
+            window.supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        }
+    }
+
+    // Save transcript to Supabase database
+    async function saveTranscript(transcriptData) {
+        if (!window.supabaseClient) {
+            console.error('❌ Supabase client not initialized');
+            return false;
+        }
+
+        try {
+            console.log('🔄 Saving transcript:', transcriptData);
+            
+            const { data, error } = await window.supabaseClient
+                .from('transcripts')
+                .insert({
+                    session_id: transcriptData.session_id,
+                    speaker: transcriptData.speaker,
+                    content: transcriptData.content,
+                    timestamp: transcriptData.timestamp,
+                    metadata: {
+                        ...transcriptData.metadata,
+                        qualtrics_response_id: responseId,
+                        platform: 'qualtrics'
+                    }
+                });
+
+            if (error) {
+                console.error('❌ Error saving transcript:', error);
+                return false;
+            }
+
+            console.log('✅ Transcript saved successfully:', data);
+            return true;
+        } catch (error) {
+            console.error('❌ Unexpected error saving transcript:', error);
+            return false;
+        }
+    }
+
+    // Update Qualtrics embedded data with conversation summary
+    function updateQualtricsData() {
+        try {
+            // Get last 10 messages for summary
+            const recentMessages = conversationLog.slice(-10);
+            const transcriptSummary = recentMessages.map(msg => 
+                `${msg.speaker}: ${msg.content.substring(0, 100)}`
+            ).join(' | ');
+
+            // Update embedded data fields
+            Qualtrics.SurveyEngine.setEmbeddedData('transcript_data', transcriptSummary);
+            Qualtrics.SurveyEngine.setEmbeddedData('transcript_session_summary', JSON.stringify({
+                session_id: sessionId,
+                total_messages: conversationLog.length,
+                user_messages: conversationLog.filter(m => m.speaker.includes('User')).length,
+                avatar_messages: conversationLog.filter(m => m.speaker.includes('Avatar')).length,
+                last_updated: new Date().toISOString()
+            }));
+
+            console.log('✅ Qualtrics embedded data updated');
+        } catch (error) {
+            console.error('❌ Error updating Qualtrics data:', error);
+        }
+    }
+
+    // Process and save conversation message
+    async function processMessage(speaker, content, eventData = null) {
+        if (!content || content.trim().length === 0) {
+            console.log('⚠️ Skipping empty message');
+            return;
+        }
+
+        const messageData = {
             session_id: sessionId,
-            speaker: transcriptEntry.speaker,
-            content: transcriptEntry.content,
-            timestamp: transcriptEntry.timestamp,
+            speaker: speaker,
+            content: content.trim(),
+            timestamp: new Date().toISOString(),
             metadata: {
-                qualtrics_response_id: responseId,
-                source: 'qualtrics_survey'
+                event_type: eventData?.type || 'MESSAGE',
+                event_data: eventData || {},
+                qualtrics_response_id: responseId
+            }
+        };
+
+        // Add to conversation log
+        conversationLog.push(messageData);
+        console.log(`📝 ${speaker}: ${content}`);
+
+        // Save to database
+        await saveTranscript(messageData);
+
+        // Update Qualtrics embedded data
+        updateQualtricsData();
+    }
+
+    // Initialize HeyGen SDK
+    function initializeHeyGenSDK() {
+        console.log('🚀 Initializing HeyGen SDK...');
+        
+        // Load HeyGen SDK
+        const script = document.createElement('script');
+        script.src = 'https://sdk.heygen.com/latest/streaming-avatar.js';
+        script.onload = function() {
+            try {
+                console.log('✅ HeyGen SDK loaded');
+                
+                // Create avatar container
+                const avatarContainer = document.getElementById('heygen-avatar-container');
+                if (!avatarContainer) {
+                    console.error('❌ Avatar container not found');
+                    return;
+                }
+
+                // Initialize HeyGen Streaming Avatar
+                avatar = new HeyGenStreamingAvatar({
+                    token: HEYGEN_TOKEN,
+                    container: avatarContainer,
+                    avatarId: HEYGEN_AVATAR_ID,
+                    quality: 'high',
+                    knowledgeBaseId: HEYGEN_KNOWLEDGE_BASE_ID,
+                });
+
+                // Set up event listeners for conversation capture
+                
+                // Capture Avatar talking messages
+                avatar.on('AVATAR_TALKING_MESSAGE', (message) => {
+                    console.log('🤖 Avatar talking message:', message);
+                    
+                    // Extract the actual message content
+                    const content = message.message || message.text || message.content || '';
+                    if (content) {
+                        processMessage('AI Avatar', content, {
+                            type: 'AVATAR_TALKING_MESSAGE',
+                            original_event: message
+                        });
+                    }
+                });
+
+                // Capture User talking messages
+                avatar.on('USER_TALKING_MESSAGE', (message) => {
+                    console.log('👤 User talking message:', message);
+                    
+                    // Extract the actual message content
+                    const content = message.message || message.text || message.content || '';
+                    if (content) {
+                        processMessage('User', content, {
+                            type: 'USER_TALKING_MESSAGE',
+                            original_event: message
+                        });
+                    }
+                });
+
+                // Additional event listeners for better tracking
+                avatar.on('AVATAR_READY', () => {
+                    console.log('✅ Avatar ready');
+                    processMessage('System', 'Avatar session started', {
+                        type: 'AVATAR_READY',
+                        session_id: sessionId
+                    });
+                });
+
+                avatar.on('CONNECTION_ERROR', (error) => {
+                    console.error('❌ Avatar connection error:', error);
+                    processMessage('System', `Connection error: ${error.message || 'Unknown error'}`, {
+                        type: 'CONNECTION_ERROR',
+                        error: error
+                    });
+                });
+
+                avatar.on('STREAM_READY', () => {
+                    console.log('✅ Stream ready');
+                    processMessage('System', 'Streaming started', {
+                        type: 'STREAM_READY'
+                    });
+                });
+
+                avatar.on('STREAM_DISCONNECTED', () => {
+                    console.log('⚠️ Stream disconnected');
+                    processMessage('System', 'Streaming ended', {
+                        type: 'STREAM_DISCONNECTED'
+                    });
+                });
+
+                // Start the avatar
+                avatar.start().then(() => {
+                    console.log('✅ HeyGen Avatar started successfully');
+                }).catch((error) => {
+                    console.error('❌ Failed to start avatar:', error);
+                    processMessage('System', `Failed to start avatar: ${error.message}`, {
+                        type: 'START_ERROR',
+                        error: error
+                    });
+                });
+
+            } catch (error) {
+                console.error('❌ Error initializing HeyGen Avatar:', error);
             }
         };
         
-        // Add any additional metadata
-        if (transcriptEntry.metadata) {
-            for (var key in transcriptEntry.metadata) {
-                if (transcriptEntry.metadata.hasOwnProperty(key)) {
-                    data.metadata[key] = transcriptEntry.metadata[key];
-                }
-            }
-        }
+        script.onerror = function() {
+            console.error('❌ Failed to load HeyGen SDK');
+        };
         
-        fetch(SUPABASE_URL + '/rest/v1/transcripts', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'apikey': SUPABASE_ANON_KEY,
-                'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
-                'Prefer': 'return=minimal'
-            },
-            body: JSON.stringify(data)
-        }).then(function(response) {
-            if (response.ok) {
-                console.log('✅ Saved to Supabase:', transcriptEntry.speaker, transcriptEntry.content.substring(0, 50));
-            } else {
-                console.error('❌ Supabase save failed:', response.status, response.statusText);
-            }
-        }).catch(function(error) {
-            console.error('❌ Supabase error:', error);
-        });
+        document.head.appendChild(script);
     }
-    
-    // Function to handle and process transcript entries
-    function handleTranscript(transcriptEntry) {
-        console.log('📝 Processing transcript:', transcriptEntry.speaker, '-', transcriptEntry.content.substring(0, 100));
-        
-        // Add to local storage
-        transcriptData.push(transcriptEntry);
-        
-        // Save to Supabase
-        saveToSupabase(transcriptEntry);
-        
-        // Update Qualtrics embedded data with recent messages
-        var recentMessages = transcriptData.slice(-10).map(function(entry) {
-            return {
-                speaker: entry.speaker,
-                content: entry.content.substring(0, 200),
-                timestamp: entry.timestamp
-            };
-        });
-        
-        try {
-            Qualtrics.SurveyEngine.setEmbeddedData('transcript_data', JSON.stringify(recentMessages));
-            console.log('📊 Updated Qualtrics embedded data');
-        } catch (error) {
-            console.error('❌ Failed to update embedded data:', error);
-        }
-    }
-    
-    // Message handler for iframe communication
-    function handleMessage(event) {
-        console.log('📨 Received message:', event.data, 'from:', event.origin);
-        
-        // Security check - only accept messages from HeyGen domains
-        if (!event.origin.includes('heygen.com') && !event.origin.includes('labs.heygen.com')) {
-            console.log('⚠️ Ignoring message from untrusted origin:', event.origin);
+
+    // Create avatar container in the question
+    function createAvatarContainer() {
+        const questionContainer = document.getElementById(this.questionId);
+        if (!questionContainer) {
+            console.error('❌ Question container not found');
             return;
         }
-        
-        if (!event.data || typeof event.data !== 'object') {
-            return;
-        }
-        
-        var messageData = event.data;
-        var timestamp = new Date().toISOString();
-        
-        // Handle different types of HeyGen messages
-        if (messageData.type === 'transcript' || messageData.type === 'ai_response') {
-            handleTranscript({
-                speaker: 'AI Avatar',
-                content: messageData.data.content || messageData.content || '',
-                timestamp: messageData.data.timestamp || timestamp,
-                metadata: {
-                    type: messageData.type,
-                    source: 'heygen_avatar'
-                }
-            });
-        } else if (messageData.type === 'user_message' || messageData.type === 'user_input') {
-            handleTranscript({
-                speaker: 'User',
-                content: messageData.data.message || messageData.data.content || messageData.message || '',
-                timestamp: messageData.data.timestamp || timestamp,
-                metadata: {
-                    type: messageData.type,
-                    source: 'user_input'
-                }
-            });
-        } else if (messageData.type === 'avatar_ready' || messageData.action === 'ready') {
-            console.log('🤖 HeyGen avatar is ready');
-            handleTranscript({
-                speaker: 'System',
-                content: 'HeyGen avatar ready for interaction',
-                timestamp: timestamp,
-                metadata: {
-                    type: 'system_event',
-                    event: 'avatar_ready'
-                }
-            });
-        } else if (messageData.type === 'conversation_start') {
-            handleTranscript({
-                speaker: 'System',
-                content: 'Conversation started with AI avatar',
-                timestamp: timestamp,
-                metadata: {
-                    type: 'system_event',
-                    event: 'conversation_start'
-                }
-            });
-        }
+
+        // Create avatar container
+        const avatarHTML = `
+            <div id="heygen-avatar-container" style="
+                width: 100%; 
+                height: 600px; 
+                border: 1px solid #ccc; 
+                border-radius: 8px; 
+                background: #f9f9f9;
+                margin: 20px 0;
+                position: relative;
+            ">
+                <div style="
+                    position: absolute;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    text-align: center;
+                    color: #666;
+                ">
+                    <div>Loading HeyGen AI Avatar...</div>
+                    <div style="font-size: 12px; margin-top: 10px;">Session: ${sessionId}</div>
+                </div>
+            </div>
+            <div style="margin: 10px 0; padding: 10px; background: #e8f4f8; border-radius: 4px; font-size: 12px; color: #666;">
+                <strong>Instructions:</strong> Interact with the AI avatar above. Your conversation will be automatically captured and saved.
+                <br><strong>Session ID:</strong> ${sessionId}
+            </div>
+        `;
+
+        // Insert avatar container
+        questionContainer.innerHTML = avatarHTML + questionContainer.innerHTML;
     }
-    
-    // Add global message listener
-    if (window.addEventListener) {
-        window.addEventListener('message', handleMessage, false);
-        console.log('👂 Global message listener added');
-    }
-    
-    // Function to create and inject the HeyGen iframe
-    function createHeyGenEmbed() {
-        console.log('🔍 Looking for HeyGen container...');
+
+    // Initialize everything
+    try {
+        console.log('🔄 Starting HeyGen Qualtrics integration...');
+        console.log('📝 Session ID:', sessionId);
+        console.log('📋 Response ID:', responseId);
+
+        // Initialize components
+        initializeSupabase();
+        createAvatarContainer();
         
-        // Look for the container by ID first
-        var container = document.getElementById('heygen-streaming-embed');
-        
-        // If not found by ID, look for container with specific content
-        if (!container) {
-            var allDivs = document.getElementsByTagName('div');
-            for (var i = 0; i < allDivs.length; i++) {
-                if (allDivs[i].innerHTML && allDivs[i].innerHTML.indexOf('heygen-streaming-embed') > -1) {
-                    container = allDivs[i];
-                    break;
-                }
-            }
-        }
-        
-        // If still not found, look in question text areas
-        if (!container) {
-            var questionContainers = document.querySelectorAll('.QuestionText, .QuestionBody, .Inner');
-            for (var i = 0; i < questionContainers.length; i++) {
-                var testDiv = questionContainers[i].querySelector('#heygen-streaming-embed');
-                if (testDiv) {
-                    container = testDiv;
-                    break;
-                }
-            }
-        }
-        
-        if (!container) {
-            console.error('❌ HeyGen container not found! Make sure you have added the HTML container to your question.');
-            return false;
-        }
-        
-        console.log('✅ Found HeyGen container:', container);
-        
-        // Create the iframe
-        var iframe = document.createElement('iframe');
-        iframe.id = 'heygen-iframe';
-        iframe.src = HEYGEN_EMBED_URL;
-        iframe.style.width = '100%';
-        iframe.style.height = '500px';
-        iframe.style.border = 'none';
-        iframe.style.borderRadius = '8px';
-        iframe.setAttribute('allow', 'microphone; camera; autoplay');
-        iframe.setAttribute('allowfullscreen', 'true');
-        iframe.setAttribute('title', 'HeyGen AI Avatar');
-        
-        // Clear container and add iframe
-        container.innerHTML = '';
-        container.appendChild(iframe);
-        
-        console.log('🎬 HeyGen iframe created and embedded');
-        
-        // Log session start
-        handleTranscript({
-            speaker: 'System',
-            content: 'HeyGen avatar session started in Qualtrics survey',
-            timestamp: new Date().toISOString(),
-            metadata: {
-                type: 'system_event',
-                event: 'session_start',
-                session_id: sessionId,
-                response_id: responseId
-            }
-        });
-        
-        // Send initialization message to iframe after a delay
-        setTimeout(function() {
-            if (iframe.contentWindow) {
-                var initMessage = {
-                    type: 'init',
-                    session_id: sessionId,
-                    timestamp: new Date().toISOString(),
-                    source: 'qualtrics_survey'
-                };
-                iframe.contentWindow.postMessage(initMessage, '*');
-                console.log('📤 Sent initialization message to HeyGen iframe');
-            }
-        }, 3000);
-        
-        return true;
-    }
-    
-    // Try to create embed immediately
-    if (!createHeyGenEmbed()) {
-        // If immediate creation fails, try after a delay
-        console.log('⏳ Retrying HeyGen embed creation in 2 seconds...');
-        setTimeout(function() {
-            if (!createHeyGenEmbed()) {
-                console.log('⏳ Final retry in 5 seconds...');
-                setTimeout(createHeyGenEmbed, 5000);
-            }
-        }, 2000);
+        // Small delay to ensure DOM is ready
+        setTimeout(() => {
+            initializeHeyGenSDK();
+        }, 1000);
+
+    } catch (error) {
+        console.error('❌ Error during initialization:', error);
     }
 });
 
 // Cleanup when leaving the page
-Qualtrics.SurveyEngine.addOnUnload(function() {
-    console.log('🧹 Cleaning up HeyGen integration...');
-    
+Qualtrics.SurveyEngine.addOnunload(function() {
     try {
-        var finalSummary = {
-            session_completed: true,
-            total_messages: 0,
-            session_end: new Date().toISOString()
-        };
-        Qualtrics.SurveyEngine.setEmbeddedData('transcript_session_summary', JSON.stringify(finalSummary));
-        console.log('📊 Final session summary saved');
+        if (avatar) {
+            console.log('🧹 Cleaning up HeyGen Avatar...');
+            avatar.destroy();
+        }
     } catch (error) {
-        console.error('❌ Cleanup error:', error);
+        console.warn('⚠️ Error during cleanup:', error);
     }
 });
